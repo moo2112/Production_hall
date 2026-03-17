@@ -179,7 +179,7 @@ router.post("/:id/produce", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, componentsJson } = req.body;
+    const { name, description, quantity, componentsJson } = req.body;
     let components = [];
     if (componentsJson) {
       try {
@@ -194,6 +194,7 @@ router.put("/:id", async (req, res) => {
     await SecondaryProduct.update(id, {
       name: name.trim(),
       description: description || "",
+      quantity: quantity !== undefined ? parseFloat(quantity) : undefined,
       components,
     });
     await ActivityLog.log({

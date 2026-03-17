@@ -46,14 +46,15 @@ class PrimaryProduct {
 
   static async update(id, data) {
     try {
-      await db
-        .collection(this.collectionName)
-        .doc(id)
-        .update({
-          name: data.name,
-          description: data.description || "",
-          updatedAt: new Date(),
-        });
+      const updateData = {
+        name: data.name,
+        description: data.description || "",
+        updatedAt: new Date(),
+      };
+      if (data.quantity !== undefined && !isNaN(parseFloat(data.quantity))) {
+        updateData.quantity = parseFloat(data.quantity);
+      }
+      await db.collection(this.collectionName).doc(id).update(updateData);
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error updating primary product: ${error.message}`);

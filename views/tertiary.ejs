@@ -239,7 +239,7 @@
 <!-- MODAL 3 — EDIT                                                             -->
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <div class="modal fade" id="editProductModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
         <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit Tertiary Product</h5>
@@ -249,15 +249,26 @@
         <input type="hidden" name="_method" value="PUT">
         <input type="hidden" name="componentsJson" id="editComponentsJson">
         <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Product Name <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="edit_name" name="name" required>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Product Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="edit_name" name="name" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Stock (units)</label>
+              <input type="number" class="form-control" id="edit_quantity" name="quantity" step="0.01" min="0" placeholder="0">
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Description</label>
             <textarea class="form-control" id="edit_description" name="description" rows="2"></textarea>
           </div>
-          <p class="text-muted small"><i class="bi bi-info-circle"></i> To change the component recipe, delete and re-encode this product.</p>
+          <label class="form-label fw-semibold">Secondary Component Recipe <span class="text-danger">*</span></label>
+          <p class="text-muted small mb-2"><i class="bi bi-info-circle"></i> Add/remove components and adjust quantities below.</p>
+          <div class="border rounded p-2 mb-2" style="max-height:220px;overflow-y:auto" id="editComponentsList">
+            <p class="text-muted small mb-0">Loading…</p>
+          </div>
+          <div id="editSelectedComponents"><p class="text-muted small mb-0">No components selected yet</p></div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -418,18 +429,8 @@ document.getElementById('creditForm').addEventListener('submit', function(e) {
   if (bsel && !bsel.value) { e.preventDefault(); alert('Batch Number is required to add production credit.'); return; }
 });
 
-// ── Edit modal ────────────────────────────────────────────────────────────────
-async function editTertiaryProduct(id) {
-  try {
-    const res = await fetch('/tertiary/' + id);
-    const data = await res.json();
-    document.getElementById('edit_name').value = data.name || '';
-    document.getElementById('edit_description').value = data.description || '';
-    document.getElementById('editComponentsJson').value = JSON.stringify(data.components || []);
-    document.getElementById('editProductForm').action = '/tertiary/' + id;
-    new bootstrap.Modal(document.getElementById('editProductModal')).show();
-  } catch (e) { alert('Could not load product.'); }
-}
+// ── Edit modal handled by main.js ─────────────────────────────────────────────
+
 </script>
 
 <%- include('partials/footer') %>

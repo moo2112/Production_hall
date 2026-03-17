@@ -28,15 +28,14 @@ async function editProduct(id) {
   try {
     const response = await fetch(`/primary/${id}`);
     const product = await response.json();
+    if (product.error) throw new Error(product.error);
 
-    // Populate edit form
-    document.getElementById("edit_name").value = product.name;
+    document.getElementById("edit_name").value = product.name || "";
+    document.getElementById("edit_quantity").value = product.quantity || 0;
     document.getElementById("edit_description").value =
       product.description || "";
-    document.getElementById("editProductForm").action =
-      `/primary/${id}?_method=PUT`;
+    document.getElementById("editProductForm").action = `/primary/${id}`;
 
-    // Show modal
     const modal = new bootstrap.Modal(
       document.getElementById("editProductModal"),
     );
@@ -47,19 +46,144 @@ async function editProduct(id) {
   }
 }
 
-// Show increase quantity modal
-function showIncreaseModal(productId, type) {
-  const form = document.getElementById("increaseQuantityForm");
-  form.action = `/${type}/${productId}/increase-quantity`;
+// ── Shared helper: build a component picker inside editComponentsList ──────────
+function buildEditComponentPicker(
+  products,
+  currentComponents,
+  iconHtml,
+  badgeClass,
+  noProductsMsg,
+) {
+  const listEl = document.getElementById("editComponentsList");
+  listEl.innerHTML = "";
 
-  // Reset form
-  document.getElementById("increase_amount").value = "";
+  if (!products || products.length === 0) {
+    listEl.innerHTML = `<p class="text-muted small mb-0">${noProductsMsg}</p>`;
+    return {};
+  }
 
-  // Show modal
-  const modal = new bootstrap.Modal(
-    document.getElementById("increaseQuantityModal"),
-  );
-  modal.show();
+  const editSelectedComps = {};
+
+  products.forEach((p) => {
+    const existing = currentComponents.find((c) => c.productId === p.id);
+    const isSelected = !!existing;
+    const qty = isSelected ? parseFloat(existing.quantity) : 1;
+
+    if (isSelected) {
+      editSelectedComps[p.id] = {
+        productId: p.id,
+        quantity: qty,
+        name: p.name,
+      };
+    }
+
+    const row = document.createElement("div");
+    row.className =
+      "d-flex align-items-center justify-content-between p-1 rounded mb-1" +
+      (isSelected ? " bg-light" : "");
+    row.dataset.id = p.id;
+    row.dataset.name = p.name;
+    row.innerHTML = `
+      <span>${iconHtml}<strong>${p.name}</strong><small class="text-muted ms-2">(stock: ${p.quantity || 0})</small></span>
+      <div class="d-flex align-items-center gap-1">
+        <button type="button" class="btn btn-sm btn-outline-success ec-add" data-id="${p.id}"${isSelected ? ' style="display:none"' : ""}>+ Add</button>
+        <button type="button" class="btn btn-sm btn-outline-danger ec-dec" data-id="${p.id}"${!isSelected ? ' style="display:none"' : ""}>−</button>
+        <input type="number" class="form-control form-control-sm ec-qty" data-id="${p.id}"
+               style="width:75px;${!isSelected ? "display:none;" : ""}" value="${qty}" min="0.01" step="0.01">
+        <button type="button" class="btn btn-sm btn-outline-success ec-inc" data-id="${p.id}"${!isSelected ? ' style="display:none"' : ""}>+</button>
+      </div>`;
+    listEl.appendChild(row);
+  });
+
+  // Wire up Add
+  listEl.querySelectorAll(".ec-add").forEach((btn) => {
+    btn.addEventListener("click", function () {
+      const pid = this.dataset.id;
+      const row = this.closest("[data-id]");
+      editSelectedComps[pid] = {
+        productId: pid,
+        quantity: 1,
+        name: row.dataset.name,
+      };
+      this.style.display = "none";
+      row.querySelector(".ec-dec").style.display = "";
+      const inp = row.querySelector(".ec-qty");
+      inp.style.display = "";
+      inp.value = "1";
+      row.querySelector(".ec-inc").style.display = "";
+      row.classList.add("bg-light");
+      refreshEditSelectedDisplay(editSelectedComps, badgeClass);
+    });
+  });
+
+  // Wire up Increase
+  listEl.querySelectorAll(".ec-inc").forEach((btn) => {
+    btn.addEventListener("click", function () {
+      const pid = this.dataset.id;
+      const inp = listEl.querySelector(`.ec-qty[data-id="${pid}"]`);
+      const newVal = parseFloat(inp.value) + 1;
+      inp.value = newVal.toFixed(2);
+      if (editSelectedComps[pid]) editSelectedComps[pid].quantity = newVal;
+      refreshEditSelectedDisplay(editSelectedComps, badgeClass);
+    });
+  });
+
+  // Wire up Decrease / Remove
+  listEl.querySelectorAll(".ec-dec").forEach((btn) => {
+    btn.addEventListener("click", function () {
+      const pid = this.dataset.id;
+      const inp = listEl.querySelector(`.ec-qty[data-id="${pid}"]`);
+      const v = parseFloat(inp.value);
+      if (v > 1) {
+        inp.value = (v - 1).toFixed(2);
+        if (editSelectedComps[pid]) editSelectedComps[pid].quantity = v - 1;
+      } else {
+        delete editSelectedComps[pid];
+        const row = this.closest("[data-id]");
+        row.querySelector(".ec-add").style.display = "";
+        this.style.display = "none";
+        inp.style.display = "none";
+        row.querySelector(".ec-inc").style.display = "none";
+        row.classList.remove("bg-light");
+      }
+      refreshEditSelectedDisplay(editSelectedComps, badgeClass);
+    });
+  });
+
+  // Wire up manual input
+  listEl.querySelectorAll(".ec-qty").forEach((inp) => {
+    inp.addEventListener("input", function () {
+      const pid = this.dataset.id;
+      const v = parseFloat(this.value);
+      if (editSelectedComps[pid]) {
+        editSelectedComps[pid].quantity = isNaN(v) || v < 0.01 ? 0.01 : v;
+        refreshEditSelectedDisplay(editSelectedComps, badgeClass);
+      }
+    });
+  });
+
+  refreshEditSelectedDisplay(editSelectedComps, badgeClass);
+  return editSelectedComps;
+}
+
+function refreshEditSelectedDisplay(editSelectedComps, badgeClass) {
+  const container = document.getElementById("editSelectedComponents");
+  if (!container) return;
+  const keys = Object.keys(editSelectedComps);
+  if (keys.length === 0) {
+    container.innerHTML =
+      '<p class="text-muted small mb-0">No components selected yet</p>';
+  } else {
+    container.innerHTML =
+      '<div class="d-flex flex-wrap gap-2 mt-1">' +
+      keys
+        .map((k) => {
+          const c = editSelectedComps[k];
+          return `<span class="badge ${badgeClass}">${c.name} × ${c.quantity}</span>`;
+        })
+        .join("") +
+      "</div>";
+  }
 }
 
 // Edit Secondary Product
@@ -67,70 +191,36 @@ async function editSecondaryProduct(id) {
   try {
     const response = await fetch(`/secondary/${id}`);
     const product = await response.json();
+    if (product.error) throw new Error(product.error);
 
-    // Populate form
-    document.getElementById("edit_name").value = product.name;
+    document.getElementById("edit_name").value = product.name || "";
+    document.getElementById("edit_quantity").value = product.quantity || 0;
     document.getElementById("edit_description").value =
       product.description || "";
-    document.getElementById("editProductForm").action =
-      `/secondary/${id}?_method=PUT`;
+    document.getElementById("editProductForm").action = `/secondary/${id}`;
 
-    // Create edit components list
-    let editSelectedComponents = {};
-    const editComponentsList = document.getElementById("editComponentsList");
-    editComponentsList.innerHTML = "";
+    const editSelectedComps = buildEditComponentPicker(
+      typeof primaryProducts !== "undefined" ? primaryProducts : [],
+      product.components || [],
+      '<i class="bi bi-circle-fill text-success me-1" style="font-size:.6rem"></i>',
+      "bg-success",
+      "No primary products available.",
+    );
 
-    primaryProducts.forEach((primary) => {
-      const existingComp = product.components
-        ? product.components.find((c) => c.productId === primary.id)
-        : null;
-      const isSelected = existingComp !== null && existingComp !== undefined;
-      const qty = isSelected ? existingComp.quantity : 1;
-
-      if (isSelected) {
-        editSelectedComponents[primary.id] = {
-          productId: primary.id,
-          quantity: qty,
-          name: primary.name,
-        };
+    document.getElementById("editProductForm").onsubmit = function (e) {
+      const arr = Object.values(editSelectedComps).map((c) => ({
+        productId: c.productId,
+        quantity: c.quantity,
+      }));
+      if (arr.length === 0) {
+        e.preventDefault();
+        alert("Please select at least one primary component.");
+        return false;
       }
+      document.getElementById("editComponentsJson").value = JSON.stringify(arr);
+      return true;
+    };
 
-      editComponentsList.innerHTML += `
-        <div class="component-item mb-3 p-3 border rounded ${isSelected ? "bg-light" : ""}" data-id="${primary.id}" data-name="${primary.name}">
-          <div class="d-flex justify-content-between align-items-center">
-            <div>
-              <strong>${primary.name}</strong>
-              <br><small class="text-muted">${primary.description || "No description"}</small>
-            </div>
-            <div class="d-flex align-items-center">
-              <button type="button" class="btn btn-sm btn-outline-danger me-2 edit-decrease-btn" ${!isSelected ? 'style="display:none;"' : ""} data-id="${primary.id}">
-                <i class="bi bi-dash"></i>
-              </button>
-              <input type="number" class="form-control form-control-sm text-center edit-quantity-input" 
-                     style="width: 70px; ${!isSelected ? "display:none;" : ""}" 
-                     data-id="${primary.id}" 
-                     min="1" 
-                     value="${qty}" 
-                     readonly>
-              <button type="button" class="btn btn-sm btn-outline-success ms-2 edit-increase-btn" ${!isSelected ? 'style="display:none;"' : ""} data-id="${primary.id}">
-                <i class="bi bi-plus"></i>
-              </button>
-              <button type="button" class="btn btn-sm btn-success edit-add-btn" ${isSelected ? 'style="display:none;"' : ""} data-id="${primary.id}">
-                <i class="bi bi-plus-circle"></i> Add
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
-    });
-
-    // Update edit selected display
-    updateEditSelectedDisplay(editSelectedComponents);
-
-    // Setup event listeners for edit modal
-    setupEditModalListeners(editSelectedComponents);
-
-    // Show modal
     const modal = new bootstrap.Modal(
       document.getElementById("editProductModal"),
     );
@@ -146,70 +236,36 @@ async function editTertiaryProduct(id) {
   try {
     const response = await fetch(`/tertiary/${id}`);
     const product = await response.json();
+    if (product.error) throw new Error(product.error);
 
-    // Populate form
-    document.getElementById("edit_name").value = product.name;
+    document.getElementById("edit_name").value = product.name || "";
+    document.getElementById("edit_quantity").value = product.quantity || 0;
     document.getElementById("edit_description").value =
       product.description || "";
-    document.getElementById("editProductForm").action =
-      `/tertiary/${id}?_method=PUT`;
+    document.getElementById("editProductForm").action = `/tertiary/${id}`;
 
-    // Create edit components list
-    let editSelectedComponents = {};
-    const editComponentsList = document.getElementById("editComponentsList");
-    editComponentsList.innerHTML = "";
+    const editSelectedComps = buildEditComponentPicker(
+      typeof secondaryProducts !== "undefined" ? secondaryProducts : [],
+      product.components || [],
+      '<i class="bi bi-layer-forward text-warning me-1"></i>',
+      "bg-warning text-dark",
+      "No secondary products available.",
+    );
 
-    secondaryProducts.forEach((secondary) => {
-      const existingComp = product.components
-        ? product.components.find((c) => c.productId === secondary.id)
-        : null;
-      const isSelected = existingComp !== null && existingComp !== undefined;
-      const qty = isSelected ? existingComp.quantity : 1;
-
-      if (isSelected) {
-        editSelectedComponents[secondary.id] = {
-          productId: secondary.id,
-          quantity: qty,
-          name: secondary.name,
-        };
+    document.getElementById("editProductForm").onsubmit = function (e) {
+      const arr = Object.values(editSelectedComps).map((c) => ({
+        productId: c.productId,
+        quantity: c.quantity,
+      }));
+      if (arr.length === 0) {
+        e.preventDefault();
+        alert("Please select at least one secondary component.");
+        return false;
       }
+      document.getElementById("editComponentsJson").value = JSON.stringify(arr);
+      return true;
+    };
 
-      editComponentsList.innerHTML += `
-        <div class="component-item mb-3 p-3 border rounded ${isSelected ? "bg-light" : ""}" data-id="${secondary.id}" data-name="${secondary.name}">
-          <div class="d-flex justify-content-between align-items-center">
-            <div>
-              <strong>${secondary.name}</strong>
-              <br><small class="text-muted">${secondary.description || "No description"}</small>
-            </div>
-            <div class="d-flex align-items-center">
-              <button type="button" class="btn btn-sm btn-outline-danger me-2 edit-decrease-btn" ${!isSelected ? 'style="display:none;"' : ""} data-id="${secondary.id}">
-                <i class="bi bi-dash"></i>
-              </button>
-              <input type="number" class="form-control form-control-sm text-center edit-quantity-input" 
-                     style="width: 70px; ${!isSelected ? "display:none;" : ""}" 
-                     data-id="${secondary.id}" 
-                     min="1" 
-                     value="${qty}" 
-                     readonly>
-              <button type="button" class="btn btn-sm btn-outline-success ms-2 edit-increase-btn" ${!isSelected ? 'style="display:none;"' : ""} data-id="${secondary.id}">
-                <i class="bi bi-plus"></i>
-              </button>
-              <button type="button" class="btn btn-sm btn-danger edit-add-btn" ${isSelected ? 'style="display:none;"' : ""} data-id="${secondary.id}">
-                <i class="bi bi-plus-circle"></i> Add
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
-    });
-
-    // Update edit selected display
-    updateEditSelectedDisplay(editSelectedComponents);
-
-    // Setup event listeners for edit modal
-    setupEditModalListeners(editSelectedComponents);
-
-    // Show modal
     const modal = new bootstrap.Modal(
       document.getElementById("editProductModal"),
     );
@@ -217,103 +273,6 @@ async function editTertiaryProduct(id) {
   } catch (error) {
     console.error("Error fetching product:", error);
     alert("Failed to load product data");
-  }
-}
-
-// Setup edit modal listeners
-function setupEditModalListeners(editSelectedComponents) {
-  // Add component
-  document.querySelectorAll(".edit-add-btn").forEach((btn) => {
-    btn.addEventListener("click", function () {
-      const id = this.dataset.id;
-      const item = this.closest(".component-item");
-      const name = item.dataset.name;
-
-      editSelectedComponents[id] = { productId: id, quantity: 1, name: name };
-
-      this.style.display = "none";
-      item.querySelector(".edit-decrease-btn").style.display = "inline-block";
-      item.querySelector(".edit-quantity-input").style.display = "inline-block";
-      item.querySelector(".edit-increase-btn").style.display = "inline-block";
-      item.classList.add("bg-light");
-
-      updateEditSelectedDisplay(editSelectedComponents);
-    });
-  });
-
-  // Increase quantity
-  document.querySelectorAll(".edit-increase-btn").forEach((btn) => {
-    btn.addEventListener("click", function () {
-      const id = this.dataset.id;
-      const input = document.querySelector(
-        `.edit-quantity-input[data-id="${id}"]`,
-      );
-      const currentQty = parseInt(input.value);
-      input.value = currentQty + 1;
-      editSelectedComponents[id].quantity = currentQty + 1;
-      updateEditSelectedDisplay(editSelectedComponents);
-    });
-  });
-
-  // Decrease quantity
-  document.querySelectorAll(".edit-decrease-btn").forEach((btn) => {
-    btn.addEventListener("click", function () {
-      const id = this.dataset.id;
-      const input = document.querySelector(
-        `.edit-quantity-input[data-id="${id}"]`,
-      );
-      const currentQty = parseInt(input.value);
-
-      if (currentQty > 1) {
-        input.value = currentQty - 1;
-        editSelectedComponents[id].quantity = currentQty - 1;
-      } else {
-        delete editSelectedComponents[id];
-        const item = this.closest(".component-item");
-        item.querySelector(".edit-add-btn").style.display = "inline-block";
-        this.style.display = "none";
-        input.style.display = "none";
-        item.querySelector(".edit-increase-btn").style.display = "none";
-        item.classList.remove("bg-light");
-      }
-
-      updateEditSelectedDisplay(editSelectedComponents);
-    });
-  });
-
-  // Form submission
-  document.getElementById("editProductForm").onsubmit = function (e) {
-    const componentsArray = Object.values(editSelectedComponents);
-    if (componentsArray.length === 0) {
-      e.preventDefault();
-      alert("Please select at least one component");
-      return false;
-    }
-    document.getElementById("editComponentsJson").value =
-      JSON.stringify(componentsArray);
-    return true;
-  };
-}
-
-// Update edit selected display
-function updateEditSelectedDisplay(editSelectedComponents) {
-  const container = document.getElementById("editSelectedComponents");
-  const keys = Object.keys(editSelectedComponents);
-
-  if (keys.length === 0) {
-    container.innerHTML =
-      '<p class="text-muted small">No components selected yet</p>';
-  } else {
-    let html = "";
-    const currentPath = window.location.pathname;
-    const badgeClass = currentPath.includes("/secondary")
-      ? "bg-success"
-      : "bg-warning text-dark";
-    keys.forEach((key) => {
-      const comp = editSelectedComponents[key];
-      html += `<span class="badge ${badgeClass} me-1 mb-1">${comp.name} × ${comp.quantity}</span>`;
-    });
-    container.innerHTML = html;
   }
 }
 

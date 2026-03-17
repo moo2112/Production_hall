@@ -97,13 +97,14 @@ router.post("/:id/produce", async (req, res) => {
 // ── PUT /primary/:id ──────────────────────────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, quantity } = req.body;
     if (!name || name.trim() === "")
       return res.status(400).json({ error: "Product name is required" });
 
     await PrimaryProduct.update(req.params.id, {
       name: name.trim(),
       description: description || "",
+      quantity: quantity !== undefined ? parseFloat(quantity) : undefined,
     });
     await ActivityLog.log({
       action: "Primary Product Updated",
