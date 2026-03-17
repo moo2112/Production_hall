@@ -67,6 +67,23 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Firebase health check ─────────────────────────────────────────────────────
+// If Firebase failed to init, show a clear error instead of a silent reload
+const { db } = require("./config/firebase");
+if (!db) {
+  app.use((req, res) => {
+    res.status(500).send(`
+      <h2 style="font-family:sans-serif;color:red">Firebase Not Configured</h2>
+      <p style="font-family:sans-serif">
+        Cannot connect to Firestore. Set these environment variables in Vercel dashboard:<br><br>
+        <b>FIREBASE_PROJECT_ID</b><br>
+        <b>FIREBASE_CLIENT_EMAIL</b><br>
+        <b>FIREBASE_PRIVATE_KEY</b>
+      </p>
+    `);
+  });
+}
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
