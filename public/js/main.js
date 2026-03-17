@@ -33,7 +33,6 @@ async function editProduct(id) {
     document.getElementById("edit_name").value = product.name;
     document.getElementById("edit_description").value =
       product.description || "";
-    document.getElementById("edit_quantity").value = product.quantity || 0;
     document.getElementById("editProductForm").action =
       `/primary/${id}?_method=PUT`;
 

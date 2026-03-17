@@ -245,19 +245,7 @@ document.getElementById('creditForm').addEventListener('submit', function(e) {
 
 });
 
-// ── Edit modal ────────────────────────────────────────────────────────────────
-async function editProduct(id) {
-  try {
-    const res  = await fetch('/primary/' + id);
-    const data = await res.json();
-    document.getElementById('edit_name').value        = data.name        || '';
-    document.getElementById('edit_description').value = data.description || '';
-    document.getElementById('editProductForm').action = '/primary/' + id;
-    new bootstrap.Modal(document.getElementById('editProductModal')).show();
-  } catch (e) {
-    alert('Could not load product.');
-  }
-}
+// ── Edit modal handled by main.js ─────────────────────────────────────────────
 </script>
 
 <%- include('partials/footer') %>
