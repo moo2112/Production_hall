@@ -1,0 +1,244 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold"><i class="bi bi-collection" style="color:#7c3aed"></i> Batch Management</h2>
+      <p class="text-muted">Record and trace production batches across all product tiers</p>
+    </div>
+
+    <% if (error) { %>
+      <div class="alert alert-danger alert-dismissible fade show"><i class="bi bi-exclamation-triangle"></i> <%= error %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+    <% if (success) { %>
+      <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle"></i> <%= success %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="mb-3 d-flex gap-2">
+      <button class="btn btn-purple" style="background:#7c3aed;color:#fff" data-bs-toggle="modal" data-bs-target="#addBatchModal">
+        <i class="bi bi-plus-circle"></i> New Batch Record
+      </button>
+      <a href="/form-builder" class="btn btn-outline-secondary">
+        <i class="bi bi-ui-checks"></i> Manage Form Templates
+      </a>
+    </div>
+
+    <!-- Batch Records Table -->
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <% if (batches.length === 0) { %>
+          <div class="text-center text-muted py-5">
+            <i class="bi bi-collection display-1" style="opacity:.2;color:#7c3aed"></i>
+            <p class="mt-3">No batches recorded yet. Click "New Batch Record" to get started.</p>
+          </div>
+        <% } else { %>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>#</th>
+                  <th>Batch Number</th>
+                  <th>Item Name</th>
+                  <th>Item Type</th>
+                  <th>Form Template</th>
+                  <th>Date Recorded</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% batches.forEach((batch, index) => { %>
+                  <tr>
+                    <td><%= index + 1 %></td>
+                    <td>
+                      <span class="badge fs-6 fw-semibold" style="background:#7c3aed">
+                        <i class="bi bi-tag-fill me-1"></i><%= batch.batchNumber %>
+                      </span>
+                    </td>
+                    <td><strong><%= batch.itemName %></strong></td>
+                    <td>
+                      <% const typeColors = {Primary:'success',Secondary:'warning',Tertiary:'danger'}; %>
+                      <span class="badge bg-<%= typeColors[batch.itemType] || 'secondary' %>"><%= batch.itemType || '-' %></span>
+                    </td>
+                    <td><%= batch.formTemplateName || '<span class="text-muted">-</span>' %></td>
+                    <td class="text-muted small">
+                      <%= batch.createdAt && batch.createdAt.toDate ? batch.createdAt.toDate().toLocaleString() : new Date(batch.createdAt).toLocaleString() %>
+                    </td>
+                    <td class="text-end">
+                      <button class="btn btn-sm btn-outline-info" onclick="viewBatchDetails(<%- JSON.stringify(batch) %>)" title="View Details">
+                        <i class="bi bi-eye"></i>
+                      </button>
+                      <form action="/batch/<%= batch.id %>?_method=DELETE" method="POST" style="display:inline">
+                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this batch record?')">
+                          <i class="bi bi-trash"></i>
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Batch Modal ──────────────────────────────────────────────────────── -->
+<div class="modal fade" id="addBatchModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header text-white" style="background:#7c3aed">
+        <h5 class="modal-title"><i class="bi bi-plus-circle"></i> New Batch Record</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="batchForm" action="/batch" method="POST">
+        <div class="modal-body">
+
+          <!-- Step 1: Choose form template (optional) -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Form Template <span class="text-muted fw-normal">(optional)</span></label>
+            <select class="form-select" id="templateSelector" onchange="loadTemplate(this.value)">
+              <option value="">— No template / use default fields —</option>
+              <% templates.forEach(t => { %>
+                <option value="<%= t.id %>" data-name="<%= t.name %>" data-fields='<%- JSON.stringify(t.fields || []) %>'>
+                  <%= t.name %>
+                </option>
+              <% }); %>
+            </select>
+            <input type="hidden" name="formTemplateId" id="formTemplateId">
+            <input type="hidden" name="formTemplateName" id="formTemplateName">
+          </div>
+
+          <!-- Mandatory Fields (always shown) -->
+          <div class="card border-primary mb-3">
+            <div class="card-header bg-primary text-white py-2">
+              <small><i class="bi bi-lock-fill me-1"></i> Required Fields — always present</small>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Batch Number <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" name="batchNumber" placeholder="e.g. BATCH-2024-001" required>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Item Name <span class="text-danger">*</span></label>
+                  <select class="form-select" name="itemId" id="itemSelector" required onchange="syncItemName(this)">
+                    <option value="">— Select a product —</option>
+                    <% const grouped = {Primary:[],Secondary:[],Tertiary:[]}; %>
+                    <% allProducts.forEach(p => { if(grouped[p.productType]) grouped[p.productType].push(p); }); %>
+                    <% ['Primary','Secondary','Tertiary'].forEach(type => { %>
+                      <% if(grouped[type].length > 0) { %>
+                        <optgroup label="<%= type %> Products">
+                          <% grouped[type].forEach(p => { %>
+                            <option value="<%= p.id %>" data-type="<%= type %>" data-name="<%= p.name %>">
+                              <%= p.name %>
+                            </option>
+                          <% }); %>
+                        </optgroup>
+                      <% } %>
+                    <% }); %>
+                  </select>
+                  <input type="hidden" name="itemName" id="itemName">
+                  <input type="hidden" name="itemType" id="itemType">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dynamic Fields Container -->
+          <div id="dynamicFieldsContainer"></div>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn text-white" style="background:#7c3aed">
+            <i class="bi bi-save"></i> Save Batch Record
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Batch Detail Modal ────────────────────────────────────────────────────── -->
+<div class="modal fade" id="batchDetailModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header text-white" style="background:#7c3aed">
+        <h5 class="modal-title"><i class="bi bi-eye"></i> Batch Details</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="batchDetailBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function syncItemName(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    document.getElementById('itemName').value = opt.dataset.name || '';
+    document.getElementById('itemType').value = opt.dataset.type || '';
+  }
+
+  function loadTemplate(templateId) {
+    const sel = document.getElementById('templateSelector');
+    const opt = sel.options[sel.selectedIndex];
+    document.getElementById('formTemplateId').value = templateId || '';
+    document.getElementById('formTemplateName').value = opt ? (opt.dataset.name || '') : '';
+
+    const container = document.getElementById('dynamicFieldsContainer');
+    container.innerHTML = '';
+
+    if (!templateId || !opt) return;
+    let fields = [];
+    try { fields = JSON.parse(opt.dataset.fields || '[]'); } catch(e) {}
+
+    if (fields.length === 0) return;
+
+    let html = '<div class="card border-secondary"><div class="card-header bg-secondary text-white py-2"><small><i class="bi bi-ui-checks me-1"></i> Template Fields</small></div><div class="card-body"><div class="row g-3">';
+    fields.forEach(f => {
+      const req = f.required ? 'required' : '';
+      const reqMark = f.required ? '<span class="text-danger">*</span>' : '';
+      html += `<div class="col-md-6"><label class="form-label fw-semibold">${f.label} ${reqMark}</label>`;
+      if (f.type === 'text' || f.type === 'notes') {
+        html += `<input type="text" class="form-control" name="field_${f.id}" placeholder="${f.label}" ${req}>`;
+      } else if (f.type === 'number') {
+        html += `<input type="number" class="form-control" name="field_${f.id}" step="0.01" ${req}>`;
+      } else if (f.type === 'date') {
+        html += `<input type="date" class="form-control" name="field_${f.id}" ${req}>`;
+      } else if (f.type === 'dropdown' && f.options && f.options.length > 0) {
+        html += `<select class="form-select" name="field_${f.id}" ${req}><option value="">— Select —</option>`;
+        f.options.forEach(o => { html += `<option value="${o}">${o}</option>`; });
+        html += `</select>`;
+      } else {
+        html += `<input type="text" class="form-control" name="field_${f.id}" ${req}>`;
+      }
+      html += `</div>`;
+    });
+    html += '</div></div></div>';
+    container.innerHTML = html;
+  }
+
+  function viewBatchDetails(batch) {
+    let html = `<table class="table table-sm"><tbody>`;
+    html += `<tr><th>Batch Number</th><td><span class="badge fs-6" style="background:#7c3aed">${batch.batchNumber}</span></td></tr>`;
+    html += `<tr><th>Item Name</th><td><strong>${batch.itemName}</strong></td></tr>`;
+    html += `<tr><th>Item Type</th><td>${batch.itemType || '-'}</td></tr>`;
+    html += `<tr><th>Form Template</th><td>${batch.formTemplateName || '-'}</td></tr>`;
+    if (batch.fieldValues && Object.keys(batch.fieldValues).length > 0) {
+      html += `<tr><th colspan="2" class="bg-light">Custom Fields</th></tr>`;
+      for (const [k, v] of Object.entries(batch.fieldValues)) {
+        html += `<tr><th class="ps-3 text-muted">${k.replace('field_','')}</th><td>${v}</td></tr>`;
+      }
+    }
+    html += `</tbody></table>`;
+    document.getElementById('batchDetailBody').innerHTML = html;
+    new bootstrap.Modal(document.getElementById('batchDetailModal')).show();
+  }
+</script>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,255 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold"><i class="bi bi-ui-checks text-secondary"></i> Form Builder</h2>
+      <p class="text-muted">Design custom batch entry forms with dynamic fields</p>
+    </div>
+
+    <% if (error) { %>
+      <div class="alert alert-danger alert-dismissible fade show"><i class="bi bi-exclamation-triangle"></i> <%= error %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+    <% if (success) { %>
+      <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle"></i> <%= success %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="row g-4">
+      <!-- ── Left: Designer Panel ─────────────────────────────────────────── -->
+      <div class="col-lg-7">
+        <div class="card shadow-sm h-100">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <h5 class="mb-0"><i class="bi bi-pencil-square me-2 text-secondary"></i>Form Designer</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="resetDesigner()"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
+          </div>
+          <form id="formBuilderForm" action="/form-builder" method="POST">
+            <div class="card-body">
+              <div class="mb-4">
+                <label class="form-label fw-semibold">Template Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" name="templateName" id="templateName" placeholder="e.g. Standard Batch Form" required>
+              </div>
+
+              <!-- Mandatory Fields Preview (locked) -->
+              <div class="mb-3">
+                <label class="form-label fw-semibold text-primary"><i class="bi bi-lock-fill me-1"></i>Mandatory Fields (cannot be removed)</label>
+                <% mandatoryFields.forEach(f => { %>
+                  <div class="d-flex align-items-center p-2 rounded bg-light border mb-2">
+                    <span class="badge bg-primary me-2"><%= f.type %></span>
+                    <span class="fw-semibold"><%= f.label %></span>
+                    <span class="badge bg-danger ms-2">required</span>
+                    <span class="ms-auto text-muted small"><i class="bi bi-lock"></i></span>
+                  </div>
+                <% }); %>
+              </div>
+
+              <!-- Dynamic Fields List -->
+              <label class="form-label fw-semibold">Custom Fields</label>
+              <div id="fieldsList" class="mb-3">
+                <div class="text-center text-muted py-3 border-dashed rounded" id="emptyFieldsMsg">
+                  <i class="bi bi-plus-circle fs-3 opacity-50"></i>
+                  <p class="mb-0 mt-1 small">No custom fields yet — use the panel below to add fields</p>
+                </div>
+              </div>
+
+              <!-- Add Field Controls -->
+              <div class="card border-secondary">
+                <div class="card-header bg-secondary text-white py-2">
+                  <small><i class="bi bi-plus-circle me-1"></i>Add a Field</small>
+                </div>
+                <div class="card-body">
+                  <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                      <label class="form-label small">Field Label</label>
+                      <input type="text" class="form-control form-control-sm" id="newFieldLabel" placeholder="e.g. Expiry Date">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small">Field Type</label>
+                      <select class="form-select form-select-sm" id="newFieldType" onchange="toggleDropdownOpts()">
+                        <option value="text">Text</option>
+                        <option value="number">Number</option>
+                        <option value="date">Date</option>
+                        <option value="dropdown">Dropdown</option>
+                        <option value="notes">Notes</option>
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small">Required?</label>
+                      <select class="form-select form-select-sm" id="newFieldRequired">
+                        <option value="false">Optional</option>
+                        <option value="true">Required</option>
+                      </select>
+                    </div>
+                    <div class="col-md-2">
+                      <button type="button" class="btn btn-secondary btn-sm w-100" onclick="addField()">
+                        <i class="bi bi-plus"></i> Add
+                      </button>
+                    </div>
+                  </div>
+                  <!-- Dropdown options input (shown only for dropdown type) -->
+                  <div class="mt-2" id="dropdownOptsRow" style="display:none">
+                    <label class="form-label small">Dropdown Options <span class="text-muted">(comma-separated)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="newFieldOptions" placeholder="Option A, Option B, Option C">
+                  </div>
+                </div>
+              </div>
+
+            </div>
+            <div class="card-footer d-flex justify-content-between">
+              <a href="/batch" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back to Batches</a>
+              <button type="submit" class="btn btn-secondary" id="saveTemplateBtn">
+                <i class="bi bi-save"></i> Save Template
+              </button>
+            </div>
+            <input type="hidden" name="fieldsJson" id="fieldsJson">
+          </form>
+        </div>
+      </div>
+
+      <!-- ── Right: Saved Templates ──────────────────────────────────────── -->
+      <div class="col-lg-5">
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-collection me-2 text-secondary"></i>Saved Templates (<%= templates.length %>)</h5>
+          </div>
+          <div class="card-body p-0">
+            <% if (templates.length === 0) { %>
+              <div class="text-center text-muted py-5">
+                <i class="bi bi-clipboard-x display-3 opacity-25"></i>
+                <p class="mt-2">No templates saved yet.</p>
+              </div>
+            <% } else { %>
+              <div class="list-group list-group-flush">
+                <% templates.forEach(t => { %>
+                  <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                      <div>
+                        <strong><i class="bi bi-file-earmark-check me-1 text-secondary"></i><%= t.name %></strong>
+                        <div class="mt-1">
+                          <% const allFields = (t.fields || []); %>
+                          <small class="text-muted"><%= allFields.length %> custom field(s)</small>
+                          <% allFields.slice(0,3).forEach(f => { %>
+                            <span class="badge bg-light text-dark border ms-1 small"><%= f.label %></span>
+                          <% }); %>
+                          <% if (allFields.length > 3) { %><span class="text-muted small">+<%= allFields.length-3 %> more</span><% } %>
+                        </div>
+                      </div>
+                      <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="loadTemplateIntoDesigner('<%= t.id %>', '<%- encodeURIComponent(t.name) %>', <%- JSON.stringify(t.fields || []) %>)" title="Edit">
+                          <i class="bi bi-pencil"></i>
+                        </button>
+                        <form action="/form-builder/<%= t.id %>?_method=DELETE" method="POST" style="display:inline">
+                          <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete template \'<%= t.name %>\'?')">
+                            <i class="bi bi-trash"></i>
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                <% }); %>
+              </div>
+            <% } %>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let fields = [];
+  let editingId = null;
+
+  function toggleDropdownOpts() {
+    const t = document.getElementById('newFieldType').value;
+    document.getElementById('dropdownOptsRow').style.display = t === 'dropdown' ? '' : 'none';
+  }
+
+  function addField() {
+    const label = document.getElementById('newFieldLabel').value.trim();
+    const type  = document.getElementById('newFieldType').value;
+    const req   = document.getElementById('newFieldRequired').value === 'true';
+    const opts  = document.getElementById('newFieldOptions').value.trim();
+
+    if (!label) { alert('Please enter a field label.'); return; }
+
+    const field = {
+      id:       'field_' + Date.now(),
+      label,
+      type,
+      required: req,
+      options:  type === 'dropdown' ? opts.split(',').map(o => o.trim()).filter(Boolean) : [],
+    };
+
+    fields.push(field);
+    renderFields();
+
+    // Reset inputs
+    document.getElementById('newFieldLabel').value = '';
+    document.getElementById('newFieldOptions').value = '';
+    document.getElementById('newFieldRequired').value = 'false';
+  }
+
+  function removeField(id) {
+    fields = fields.filter(f => f.id !== id);
+    renderFields();
+  }
+
+  function renderFields() {
+    const container = document.getElementById('fieldsList');
+    const empty = document.getElementById('emptyFieldsMsg');
+
+    if (fields.length === 0) {
+      container.innerHTML = '';
+      container.appendChild(empty);
+      empty.style.display = '';
+      return;
+    }
+
+    let html = '';
+    fields.forEach((f, i) => {
+      const typeIcons = { text:'type', number:'123', date:'calendar3', dropdown:'chevron-down', notes:'text-paragraph' };
+      html += `
+      <div class="d-flex align-items-center p-2 rounded border mb-2 bg-white field-row" data-id="${f.id}">
+        <span class="badge bg-secondary me-2"><i class="bi bi-${typeIcons[f.type]||'input-cursor'}"></i> ${f.type}</span>
+        <span class="fw-semibold flex-grow-1">${f.label}</span>
+        ${f.required ? '<span class="badge bg-danger me-2">required</span>' : '<span class="badge bg-light text-dark border me-2">optional</span>'}
+        ${f.options && f.options.length > 0 ? `<small class="text-muted me-2">[${f.options.join(', ')}]</small>` : ''}
+        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="removeField('${f.id}')">
+          <i class="bi bi-x"></i>
+        </button>
+      </div>`;
+    });
+    container.innerHTML = html;
+  }
+
+  // Pre-submit: serialise fields into hidden input
+  document.getElementById('formBuilderForm').addEventListener('submit', function(e) {
+    document.getElementById('fieldsJson').value = JSON.stringify(fields);
+  });
+
+  function resetDesigner() {
+    fields = [];
+    editingId = null;
+    document.getElementById('templateName').value = '';
+    renderFields();
+    document.getElementById('saveTemplateBtn').innerHTML = '<i class="bi bi-save"></i> Save Template';
+    document.getElementById('formBuilderForm').action = '/form-builder';
+  }
+
+  function loadTemplateIntoDesigner(id, encodedName, templateFields) {
+    const name = decodeURIComponent(encodedName);
+    fields = templateFields || [];
+    document.getElementById('templateName').value = name;
+    renderFields();
+    // Switch form to PUT (update)
+    document.getElementById('formBuilderForm').action = `/form-builder/${id}?_method=PUT`;
+    document.getElementById('saveTemplateBtn').innerHTML = '<i class="bi bi-save"></i> Update Template';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+</script>
+
+<style>
+.border-dashed { border: 2px dashed #dee2e6 !important; }
+</style>
+
+<%- include('partials/footer') %>

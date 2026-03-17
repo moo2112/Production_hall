@@ -1,0 +1,243 @@
+/* Custom Styles for Production Hall */
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f8f9fa;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.container-fluid {
+  flex: 1;
+}
+
+/* Hover effects for cards */
+.hover-card {
+  transition: all 0.3s ease;
+}
+
+.hover-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 1rem 3rem rgba(0,0,0,.175) !important;
+}
+
+/* Table styles */
+.table {
+  margin-bottom: 0;
+}
+
+.table th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+  letter-spacing: 0.5px;
+}
+
+/* Button styles */
+.btn {
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* Card styles */
+.card {
+  border-radius: 12px;
+  border: none;
+}
+
+/* Badge styles */
+.badge {
+  font-weight: 500;
+  padding: 0.5em 0.75em;
+  border-radius: 6px;
+}
+
+/* Modal styles */
+.modal-content {
+  border-radius: 12px;
+  border: none;
+}
+
+.modal-header {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  border-bottom: none;
+  padding: 1.5rem;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+/* Navbar styles */
+.navbar {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.navbar-brand {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+/* Footer styles */
+footer {
+  margin-top: auto;
+  border-top: 1px solid #dee2e6;
+}
+
+/* Form styles */
+.form-control,
+.form-select {
+  border-radius: 8px;
+  border: 1px solid #ced4da;
+  padding: 0.75rem 1rem;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.15);
+}
+
+/* Alert styles */
+.alert {
+  border-radius: 10px;
+  border: none;
+}
+
+/* Empty state */
+.text-muted i.display-1 {
+  opacity: 0.3;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .navbar-brand {
+    font-size: 1.25rem;
+  }
+  
+  .display-3 {
+    font-size: 2.5rem;
+  }
+  
+  .table {
+    font-size: 0.875rem;
+  }
+}
+
+/* Custom animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card,
+.alert {
+  animation: fadeIn 0.3s ease;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Component selection checkboxes */
+.form-check {
+  padding: 0.5rem;
+  border-radius: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.form-check:hover {
+  background-color: #f8f9fa;
+}
+
+.form-check-input:checked {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+}
+
+/* ── New Features: Batch, Form Builder, Timeline ────────────────────────── */
+
+/* Purple accent for Batch Management */
+.btn-purple,
+.badge-purple {
+  background-color: #7c3aed;
+  color: #fff;
+}
+.btn-purple:hover {
+  background-color: #6d28d9;
+  color: #fff;
+}
+
+/* Production status radio labels */
+.form-check-inline .form-check-label {
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.form-check-input:checked + .form-check-label {
+  border-color: #0d6efd !important;
+  background-color: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(13,110,253,0.15);
+}
+#statusFinished:checked + .form-check-label {
+  border-color: #16a34a !important;
+  background-color: #f0fdf4;
+  box-shadow: 0 0 0 3px rgba(22,163,74,0.15);
+}
+#statusDamaged:checked + .form-check-label {
+  border-color: #dc2626 !important;
+  background-color: #fef2f2;
+  box-shadow: 0 0 0 3px rgba(220,38,38,0.15);
+}
+
+/* Form Builder field rows */
+.field-row {
+  transition: background 0.15s;
+}
+.field-row:hover {
+  background-color: #f8f9fa !important;
+}
+
+/* Timeline table */
+#timelineTable th {
+  font-size: 0.78rem;
+  letter-spacing: 0.4px;
+}
+#timelineTable td {
+  font-size: 0.85rem;
+  vertical-align: middle;
+}
+
+/* Timeline banner gradient hover */
+.hover-card [style*="linear-gradient"]:hover {
+  filter: brightness(1.05);
+}

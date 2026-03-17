@@ -1,0 +1,436 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold"><i class="bi bi-layer-forward text-warning"></i> Secondary Products</h2>
+      <p class="text-muted">Products assembled from primary product components</p>
+    </div>
+
+    <% if (error) { %>
+      <div class="alert alert-danger alert-dismissible fade show"><i class="bi bi-exclamation-triangle"></i> <%= error %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+    <% if (success) { %>
+      <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle"></i> <%= success %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
+      <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#encodeProductModal">
+        <i class="bi bi-plus-circle"></i> Encode New Product
+      </button>
+      <small class="text-muted"><i class="bi bi-info-circle"></i> <em>Encoding saves the definition only — no primary stock is deducted. Use <strong>Add Credit</strong> on each row to record actual production.</em></small>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <% if (products.length === 0) { %>
+          <div class="text-center text-muted py-5">
+            <i class="bi bi-inbox display-1 opacity-25"></i>
+            <p class="mt-3">No secondary products yet. Click <strong>Encode New Product</strong> to define one.</p>
+          </div>
+        <% } else { %>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>#</th>
+                  <th>Product Name</th>
+                  <th>Stock</th>
+                  <th>Description</th>
+                  <th>Primary Components (Recipe)</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% products.forEach((product, index) => { %>
+                  <tr>
+                    <td><%= index + 1 %></td>
+                    <td><strong><%= product.name %></strong></td>
+                    <td><span class="badge bg-warning text-dark fs-6"><i class="bi bi-box-seam"></i> <%= product.quantity || 0 %> units</span></td>
+                    <td class="text-muted small"><%= product.description || '-' %></td>
+                    <td>
+                      <% if (product.componentDetails && product.componentDetails.length > 0) { %>
+                        <% product.componentDetails.forEach(comp => { %>
+                          <span class="badge bg-success text-white me-1"><%= comp.name %> × <%= comp.usedQuantity %></span>
+                        <% }); %>
+                      <% } else { %><span class="text-muted small">-</span><% } %>
+                    </td>
+                    <td class="text-end">
+                      <button class="btn btn-sm btn-warning credit-btn"
+                        data-id="<%= product.id %>"
+                        data-name="<%= product.name %>"
+                        data-components='<%- JSON.stringify(product.components||[]) %>'
+                        data-details='<%- JSON.stringify(product.componentDetails||[]) %>'>
+                        <i class="bi bi-plus-circle-fill"></i> Add Credit
+                      </button>
+                      <button class="btn btn-sm btn-outline-primary ms-1" onclick="editSecondaryProduct('<%= product.id %>')" title="Edit">
+                        <i class="bi bi-pencil"></i>
+                      </button>
+                      <form action="/secondary/<%= product.id %>?_method=DELETE" method="POST" style="display:inline">
+                        <button type="submit" class="btn btn-sm btn-outline-danger ms-1"
+                          onclick="return confirm('Delete this product? Cannot delete if used in tertiary products.')">
+                          <i class="bi bi-trash"></i>
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-between mt-4">
+      <a href="/primary" class="btn btn-outline-secondary"><i class="bi bi-arrow-left-circle me-1"></i> Back to Primary</a>
+      <a href="/tertiary" class="btn btn-outline-danger">Go to Tertiary Products <i class="bi bi-arrow-right-circle ms-1"></i></a>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL 1 — ENCODE (no stock movement)                                       -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="encodeProductModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Encode New Secondary Product</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form action="/secondary" method="POST" id="encodeForm">
+        <input type="hidden" name="componentsJson" id="componentsJson">
+        <div class="modal-body">
+          <div class="alert alert-info py-2 mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            <strong>Encoding only</strong> — saves name, description, and recipe of primary components. <strong>No primary stock is deducted.</strong>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Product Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="name" required placeholder="e.g. Assembled Kit A">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Description</label>
+              <input type="text" class="form-control" name="description" placeholder="Optional">
+            </div>
+          </div>
+          <label class="form-label fw-semibold">Primary Component Recipe <span class="text-danger">*</span></label>
+          <p class="text-muted small mb-2"><i class="bi bi-info-circle"></i> Click a primary product to add it, then set qty per unit.</p>
+          <% if (primaryProducts.length > 0) { %>
+            <div class="border rounded p-2 mb-2" style="max-height:220px;overflow-y:auto">
+              <% primaryProducts.forEach(p => { %>
+                <div class="d-flex align-items-center justify-content-between p-1 rounded component-item mb-1"
+                     data-id="<%= p.id %>" data-name="<%= p.name %>" data-stock="<%= p.quantity||0 %>">
+                  <span><i class="bi bi-circle-fill text-success me-1" style="font-size:.6rem"></i><strong><%= p.name %></strong><small class="text-muted ms-2">(stock: <%= p.quantity||0 %>)</small></span>
+                  <div class="d-flex align-items-center gap-1">
+                    <button type="button" class="btn btn-sm btn-outline-success add-btn" data-id="<%= p.id %>">+ Add</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger decrease-btn" data-id="<%= p.id %>" style="display:none">−</button>
+                    <input type="number" class="form-control form-control-sm quantity-input" data-id="<%= p.id %>" style="width:75px;display:none" value="1" min="0.01" step="0.01">
+                    <button type="button" class="btn btn-sm btn-outline-success increase-btn" data-id="<%= p.id %>" style="display:none">+</button>
+                  </div>
+                </div>
+              <% }); %>
+            </div>
+            <div id="selectedComponents"><p class="text-muted small mb-0">No components selected yet</p></div>
+          <% } else { %>
+            <div class="alert alert-warning py-2">No primary products found. <a href="/primary">Add primary products first</a>.</div>
+          <% } %>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning"><i class="bi bi-save"></i> Encode Product</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL 2 — ADD CREDIT (requires batch, deducts primaries)                  -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="creditModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="bi bi-plus-circle-fill"></i> Add Production Credit — <span id="creditProductName"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="creditForm" method="POST">
+        <input type="hidden" name="removedComponentsJson" id="removedComponentsJson" value="[]">
+        <input type="hidden" name="batchItemName" id="batchItemName">
+        <div class="modal-body">
+          <div class="alert alert-warning py-2 mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            <strong>Production Credit</strong> — increases secondary stock and deducts primary components used.
+          </div>
+
+          <!-- Batch selector -->
+          <div class="card mb-3 border-warning">
+            <div class="card-header bg-warning text-dark py-2"><small><i class="bi bi-tag-fill me-1"></i> Step 1 — Batch Number <span class="fw-bold">(required)</span></small></div>
+            <div class="card-body">
+              <% if (batches.length === 0) { %>
+                <div class="alert alert-danger py-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i> No batches available. <a href="/batch" target="_blank" class="alert-link">Create a batch first</a>.</div>
+              <% } else { %>
+                <select class="form-select" name="batchId" id="creditBatchSelector" required onchange="onBatchSelected(this)">
+                  <option value="">— Select batch number —</option>
+                  <% batches.forEach(b => { %>
+                    <option value="<%= b.id %>" data-item="<%= b.itemName %>"><%= b.batchNumber %> — <%= b.itemName %></option>
+                  <% }); %>
+                </select>
+                <div class="mt-3" id="batchItemDisplay" style="display:none">
+                  <label class="form-label fw-semibold">Item Name <span class="badge bg-secondary ms-1">auto-filled from batch</span></label>
+                  <input type="text" class="form-control bg-light fw-semibold" id="batchItemNameDisplay" readonly>
+                </div>
+              <% } %>
+            </div>
+          </div>
+
+          <!-- Qty + Status -->
+          <div class="card mb-3 border-secondary">
+            <div class="card-header bg-secondary text-white py-2"><small><i class="bi bi-123 me-1"></i> Step 2 — Quantity & Status</small></div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-5">
+                  <label class="form-label fw-semibold">Quantity Produced <span class="text-danger">*</span></label>
+                  <input type="number" class="form-control" name="amount" step="0.01" min="0.01" required placeholder="e.g. 50">
+                </div>
+                <div class="col-md-7">
+                  <label class="form-label fw-semibold">Production Status <span class="text-danger">*</span></label>
+                  <div class="d-flex gap-3">
+                    <div class="form-check flex-fill">
+                      <input class="form-check-input" type="radio" name="productionStatus" id="s_statusFinished" value="Finished" required onchange="onCreditStatusChange()">
+                      <label class="form-check-label w-100 p-2 border rounded text-center" for="s_statusFinished" style="cursor:pointer">
+                        <i class="bi bi-check-circle-fill text-success fs-5 d-block mb-1"></i>
+                        <strong>Finished</strong><br><small class="text-muted">All components used</small>
+                      </label>
+                    </div>
+                    <div class="form-check flex-fill">
+                      <input class="form-check-input" type="radio" name="productionStatus" id="s_statusDamaged" value="Damaged" onchange="onCreditStatusChange()">
+                      <label class="form-check-label w-100 p-2 border rounded text-center" for="s_statusDamaged" style="cursor:pointer">
+                        <i class="bi bi-exclamation-triangle-fill text-danger fs-5 d-block mb-1"></i>
+                        <strong>Damaged</strong><br><small class="text-muted">Some components missing</small>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Component removal (Damaged only) -->
+          <div id="s_damagedSection" style="display:none">
+            <div class="card border-danger">
+              <div class="card-header bg-danger text-white py-2"><small><i class="bi bi-exclamation-triangle me-1"></i> Step 3 — Uncheck Missing Primary Components</small></div>
+              <div class="card-body" id="s_componentCheckboxes"><p class="text-muted small mb-0">Select Damaged status first.</p></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning"><i class="bi bi-plus-circle-fill"></i> Add Production Credit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL 3 — EDIT                                                             -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="editProductModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit Secondary Product</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editProductForm" method="POST">
+        <input type="hidden" name="_method" value="PUT">
+        <input type="hidden" name="componentsJson" id="editComponentsJson">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Product Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="edit_name" name="name" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Description</label>
+            <textarea class="form-control" id="edit_description" name="description" rows="2"></textarea>
+          </div>
+          <p class="text-muted small"><i class="bi bi-info-circle"></i> To change the component recipe, delete and re-encode this product.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Update</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const primaryProducts = <%- JSON.stringify(primaryProducts) %>;
+let selectedComponents = {};
+let creditComponentDetails = [];
+
+// ── Encode modal: primary component picker ────────────────────────────────────
+document.querySelectorAll('.add-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const id = this.dataset.id;
+    const item = this.closest('.component-item');
+    selectedComponents[id] = { productId: id, quantity: 1, name: item.dataset.name, stock: parseFloat(item.dataset.stock) };
+    this.style.display = 'none';
+    item.querySelector('.decrease-btn').style.display = '';
+    item.querySelector('.quantity-input').style.display = '';
+    item.querySelector('.increase-btn').style.display = '';
+    item.classList.add('bg-light');
+    updateSelectedDisplay();
+  });
+});
+
+document.querySelectorAll('.quantity-input').forEach(input => {
+  input.addEventListener('input', function() {
+    const id = this.dataset.id;
+    const v = parseFloat(this.value);
+    if (selectedComponents[id]) selectedComponents[id].quantity = isNaN(v) || v < 0.01 ? 0.01 : v;
+    updateSelectedDisplay();
+  });
+});
+
+document.querySelectorAll('.increase-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const id = this.dataset.id;
+    const input = document.querySelector('.quantity-input[data-id="' + id + '"]');
+    input.value = (parseFloat(input.value) + 1).toFixed(2);
+    if (selectedComponents[id]) selectedComponents[id].quantity = parseFloat(input.value);
+    updateSelectedDisplay();
+  });
+});
+
+document.querySelectorAll('.decrease-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const id = this.dataset.id;
+    const input = document.querySelector('.quantity-input[data-id="' + id + '"]');
+    const v = parseFloat(input.value);
+    if (v > 1) {
+      input.value = (v - 1).toFixed(2);
+      if (selectedComponents[id]) selectedComponents[id].quantity = parseFloat(input.value);
+    } else {
+      delete selectedComponents[id];
+      const item = this.closest('.component-item');
+      item.querySelector('.add-btn').style.display = '';
+      this.style.display = 'none';
+      input.style.display = 'none';
+      item.querySelector('.increase-btn').style.display = 'none';
+      item.classList.remove('bg-light');
+    }
+    updateSelectedDisplay();
+  });
+});
+
+function updateSelectedDisplay() {
+  const keys = Object.keys(selectedComponents);
+  const container = document.getElementById('selectedComponents');
+  if (!container) return;
+  if (keys.length === 0) {
+    container.innerHTML = '<p class="text-muted small mb-0">No components selected yet</p>';
+  } else {
+    container.innerHTML = '<div class="d-flex flex-wrap gap-2">' +
+      keys.map(k => {
+        const c = selectedComponents[k];
+        const over = c.quantity > c.stock;
+        return '<span class="badge ' + (over ? 'bg-danger' : 'bg-success') + ' text-white">' + c.name + ' × ' + c.quantity + (over ? ' ⚠️' : '') + '</span>';
+      }).join('') + '</div>';
+  }
+}
+
+document.getElementById('encodeForm').addEventListener('submit', function(e) {
+  const arr = Object.values(selectedComponents).map(c => ({ productId: c.productId, quantity: c.quantity }));
+  if (arr.length === 0) { e.preventDefault(); alert('Please select at least one primary component.'); return; }
+  document.getElementById('componentsJson').value = JSON.stringify(arr);
+});
+
+// ── Credit modal ──────────────────────────────────────────────────────────────
+document.querySelectorAll('.credit-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const productId   = this.dataset.id;
+    const productName = this.dataset.name;
+    let components = [], details = [];
+    try { components = JSON.parse(this.dataset.components || '[]'); } catch(e) {}
+    try { details    = JSON.parse(this.dataset.details    || '[]'); } catch(e) {}
+    openCreditModal(productId, productName, components, details);
+  });
+});
+
+function openCreditModal(productId, productName, components, componentDetails) {
+  creditComponentDetails = componentDetails || [];
+  document.getElementById('creditProductName').textContent = productName;
+  document.getElementById('creditForm').action = '/secondary/' + productId + '/produce';
+  document.getElementById('removedComponentsJson').value = '[]';
+  document.getElementById('batchItemName').value = '';
+  document.getElementById('batchItemNameDisplay').value = '';
+  document.getElementById('batchItemDisplay').style.display = 'none';
+  document.getElementById('s_damagedSection').style.display = 'none';
+  document.querySelectorAll('input[name="productionStatus"]').forEach(r => r.checked = false);
+  const bsel = document.getElementById('creditBatchSelector');
+  if (bsel) bsel.value = '';
+  new bootstrap.Modal(document.getElementById('creditModal')).show();
+}
+
+function onBatchSelected(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const itemName = opt.dataset.item || '';
+  document.getElementById('batchItemName').value = itemName;
+  document.getElementById('batchItemNameDisplay').value = itemName;
+  document.getElementById('batchItemDisplay').style.display = itemName ? '' : 'none';
+}
+
+function onCreditStatusChange() {
+  const isDamaged = document.getElementById('s_statusDamaged').checked;
+  document.getElementById('s_damagedSection').style.display = isDamaged ? '' : 'none';
+  if (isDamaged) {
+    const html = creditComponentDetails.length > 0
+      ? creditComponentDetails.map(c =>
+          '<div class="form-check mb-2">' +
+            '<input class="form-check-input component-check" type="checkbox" id="cc_' + c.id + '" value="' + c.id + '" checked onchange="updateRemovedComponents()">' +
+            '<label class="form-check-label" for="cc_' + c.id + '">' +
+              '<strong>' + c.name + '</strong>' +
+              '<span class="badge bg-success ms-1">× ' + c.usedQuantity + ' per unit</span>' +
+            '</label>' +
+          '</div>'
+        ).join('')
+      : '<p class="text-muted small mb-0">No components in recipe.</p>';
+    document.getElementById('s_componentCheckboxes').innerHTML = html;
+  }
+  updateRemovedComponents();
+}
+
+function updateRemovedComponents() {
+  const unchecked = [];
+  document.querySelectorAll('.component-check:not(:checked)').forEach(cb => unchecked.push(cb.value));
+  document.getElementById('removedComponentsJson').value = JSON.stringify(unchecked);
+}
+
+document.getElementById('creditForm').addEventListener('submit', function(e) {
+  const status = document.querySelector('input[name="productionStatus"]:checked');
+  if (!status) { e.preventDefault(); alert('Please select a production status.'); return; }
+  const bsel = document.getElementById('creditBatchSelector');
+  if (bsel && !bsel.value) { e.preventDefault(); alert('Batch Number is required to add production credit.'); return; }
+});
+
+// ── Edit modal ────────────────────────────────────────────────────────────────
+async function editSecondaryProduct(id) {
+  try {
+    const res = await fetch('/secondary/' + id);
+    const data = await res.json();
+    document.getElementById('edit_name').value = data.name || '';
+    document.getElementById('edit_description').value = data.description || '';
+    document.getElementById('editComponentsJson').value = JSON.stringify(data.components || []);
+    document.getElementById('editProductForm').action = '/secondary/' + id;
+    new bootstrap.Modal(document.getElementById('editProductModal')).show();
+  } catch (e) { alert('Could not load product.'); }
+}
+</script>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,149 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="fw-bold">
+        <i class="bi bi-box-seam text-info"></i> Consumables
+      </h2>
+      <button class="btn btn-info" data-bs-toggle="modal" data-bs-target="#addConsumableModal">
+        <i class="bi bi-plus-circle"></i> New Item
+      </button>
+    </div>
+
+    <!-- Alerts -->
+    <% if (error) { %>
+      <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle"></i> <%= error %>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    <% } %>
+    
+    <% if (success) { %>
+      <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle"></i> <%= success %>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    <% } %>
+
+    <!-- Consumables Table -->
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <% if (consumables.length === 0) { %>
+          <div class="text-center text-muted py-5">
+            <i class="bi bi-inbox display-1"></i>
+            <p class="mt-3">No consumables found. Click "New Item" to add one.</p>
+          </div>
+        <% } else { %>
+          <div class="table-responsive">
+            <table class="table table-hover">
+              <thead class="table-light">
+                <tr>
+                  <th>#</th>
+                  <th>Name</th>
+                  <th>Quantity</th>
+                  <th>Created</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% consumables.forEach((consumable, index) => { %>
+                  <tr>
+                    <td><%= index + 1 %></td>
+                    <td><strong><%= consumable.name %></strong></td>
+                    <td>
+                      <span class="badge bg-secondary"><%= consumable.quantity %></span>
+                    </td>
+                    <td>
+                      <small class="text-muted">
+                        <%= new Date(consumable.createdAt.seconds ? consumable.createdAt.seconds * 1000 : consumable.createdAt).toLocaleDateString() %>
+                      </small>
+                    </td>
+                    <td class="text-end">
+                      <button class="btn btn-sm btn-outline-primary" onclick="editConsumable('<%= consumable.id %>')">
+                        <i class="bi bi-pencil"></i>
+                      </button>
+                      <form action="/consumables/<%= consumable.id %>?_method=DELETE" method="POST" style="display: inline;">
+                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure?')">
+                          <i class="bi bi-trash"></i>
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Consumable Modal -->
+<div class="modal fade" id="addConsumableModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-white">
+        <h5 class="modal-title">
+          <i class="bi bi-plus-circle"></i> Add New Consumable
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form action="/consumables" method="POST">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="name" class="form-label">Consumable Name *</label>
+            <input type="text" class="form-control" id="name" name="name" required>
+          </div>
+          <div class="mb-3">
+            <label for="quantity" class="form-label">Quantity *</label>
+            <input type="number" class="form-control" id="quantity" name="quantity" step="0.01" min="0" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-info">
+            <i class="bi bi-save"></i> Save Consumable
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Consumable Modal -->
+<div class="modal fade" id="editConsumableModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title">
+          <i class="bi bi-pencil"></i> Edit Consumable
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editConsumableForm" method="POST">
+        <input type="hidden" name="_method" value="PUT">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="edit_name" class="form-label">Consumable Name *</label>
+            <input type="text" class="form-control" id="edit_name" name="name" required>
+          </div>
+          <div class="mb-3">
+            <label for="edit_quantity" class="form-label">Quantity *</label>
+            <input type="number" class="form-control" id="edit_quantity" name="quantity" step="0.01" min="0" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save"></i> Update Consumable
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
