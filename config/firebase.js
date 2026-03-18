@@ -42,50 +42,44 @@ let db;
 
 if (!admin.apps.length) {
   try {
-    // ── Option A: serviceAccountKey.json (local only) ─────────────────────────
+    // Option A: serviceAccountKey.json (local only)
     const serviceAccount = require("./serviceAccountKey.json");
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-    console.log("✅ Firebase initialized from serviceAccountKey.json");
+    console.log("Firebase initialized from serviceAccountKey.json");
   } catch (fileError) {
-    // ── Option B: Environment variables (Vercel) ──────────────────────────────
+    // Option B: Environment variables (Vercel)
     const projectId = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
     let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
     console.log("Firebase env check:");
-    console.log(
-      "  FIREBASE_PROJECT_ID   :",
-      projectId ? "✅ set" : "❌ missing",
-    );
+    console.log("  FIREBASE_PROJECT_ID   :", projectId ? "set" : "MISSING");
     console.log(
       "  FIREBASE_CLIENT_EMAIL :",
-      clientEmail ? "✅ set" : "❌ missing",
+      clientEmail ? "set (" + clientEmail.substring(0, 20) + "...)" : "MISSING",
     );
     console.log(
       "  FIREBASE_PRIVATE_KEY  :",
-      privateKey ? "✅ set (" + privateKey.length + " chars)" : "❌ missing",
+      privateKey ? "set (" + privateKey.length + " chars)" : "MISSING",
     );
 
     if (projectId && clientEmail && privateKey) {
-      // Vercel can store the key in several ways — handle all of them
-      // 1. Replace literal \n with real newlines
-      privateKey = privateKey.replace(/\\n/g, "\n");
-      // 2. Strip wrapping quotes if Vercel added them
+      // Normalize the private key regardless of how Vercel stored it
+      // 1. Strip any wrapping quotes
       privateKey = privateKey.replace(/^["']|["']$/g, "");
-      // 3. Ensure the header/footer lines have real newlines around them
-      if (!privateKey.includes("\n")) {
-        privateKey = privateKey
-          .replace(
-            "-----BEGIN PRIVATE KEY-----",
-            "-----BEGIN PRIVATE KEY-----\n",
-          )
-          .replace(
-            "-----END PRIVATE KEY-----",
-            "\n-----END PRIVATE KEY-----\n",
-          );
-      }
-
-      console.log("  Key starts with       :", privateKey.substring(0, 40));
+      // 2. Replace literal \n sequences with real newlines
+      privateKey = privateKey.replace(/\\n/g, "\n");
+      // 3. Fully reconstruct the PEM from scratch to fix any encoding issues:
+      //    strip all whitespace from the base64 body, reformat into 64-char lines
+      const PEM_HEADER = "-----BEGIN PRIVATE KEY-----";
+      const PEM_FOOTER = "-----END PRIVATE KEY-----";
+      const rawBody = privateKey
+        .replace(PEM_HEADER, "")
+        .replace(PEM_FOOTER, "")
+        .replace(/\s+/g, "");
+      const bodyLines = rawBody.match(/.{1,64}/g) || [];
+      privateKey =
+        PEM_HEADER + "\n" + bodyLines.join("\n") + "\n" + PEM_FOOTER + "\n";
 
       try {
         admin.initializeApp({
@@ -95,27 +89,28 @@ if (!admin.apps.length) {
             privateKey,
           }),
         });
-        console.log("✅ Firebase initialized from environment variables");
+        console.log("Firebase initialized from environment variables");
       } catch (envError) {
-        console.error("❌ Firebase initializeApp failed:", envError.message);
+        console.error("Firebase initializeApp failed:", envError.message);
       }
     } else {
       const missing = [];
       if (!projectId) missing.push("FIREBASE_PROJECT_ID");
       if (!clientEmail) missing.push("FIREBASE_CLIENT_EMAIL");
       if (!privateKey) missing.push("FIREBASE_PRIVATE_KEY");
-      console.error("❌ Missing env vars:", missing.join(", "));
+      console.error("Missing env vars:", missing.join(", "));
     }
   }
 }
 
 try {
   db = admin.app().firestore();
-  console.log("✅ Firestore db instance ready");
+  console.log("Firestore db instance ready");
 } catch (e) {
-  console.error("❌ Could not get Firestore instance:", e.message);
+  console.error("Could not get Firestore instance:", e.message);
   throw new Error("Firebase Firestore could not be initialized: " + e.message);
 }
+
 module.exports = { db, admin };
 
 // FIREBASE_PROJECT_ID  :   production-hall-82f07
