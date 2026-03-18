@@ -25,10 +25,6 @@ router.get("/", async (req, res) => {
 
 // ── POST /primary — ENCODE only (just save name/description, no stock change) ─
 router.post("/", async (req, res) => {
-  const isAjax =
-    req.headers["content-type"] &&
-    req.headers["content-type"].includes("application/json");
-
   try {
     const { name, description } = req.body;
 
@@ -46,11 +42,9 @@ router.post("/", async (req, res) => {
       itemType: "Primary",
     });
 
-    if (isAjax) return res.json({ success: true });
     res.redirect("/primary?success=Primary product encoded successfully");
   } catch (error) {
     console.error("POST /primary error:", error.message);
-    if (isAjax) return res.status(400).json({ error: error.message });
 
     // Safely fetch products for re-render — catch any secondary failure
     let products = [];

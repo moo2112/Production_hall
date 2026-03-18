@@ -101,25 +101,24 @@
         <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Encode New Primary Product</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form id="encodeProductForm">
+      <form action="/primary" method="POST">
         <div class="modal-body">
           <div class="alert alert-info py-2 mb-3">
             <i class="bi bi-info-circle me-1"></i>
             <strong>Encoding only</strong> — saves the product name and description. Stock starts at zero. Use <em>Add Credit</em> to increase stock.
           </div>
-          <div id="encodeError" class="alert alert-danger py-2 mb-3 d-none"></div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Product Name <span class="text-danger">*</span></label>
-            <input type="text" id="encode_name" class="form-control" name="name" required placeholder="e.g. Tablet Base">
+            <input type="text" class="form-control" name="name" required placeholder="e.g. Tablet Base">
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Description</label>
-            <input type="text" id="encode_description" class="form-control" name="description" placeholder="Optional description">
+            <input type="text" class="form-control" name="description" placeholder="Optional description">
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" id="encodeSubmitBtn" class="btn btn-success"><i class="bi bi-save"></i> Encode Product</button>
+          <button type="submit" class="btn btn-success"><i class="bi bi-save"></i> Encode Product</button>
         </div>
       </form>
     </div>
@@ -222,52 +221,6 @@
 </div>
 
 <script>
-// ── Encode modal (AJAX) ───────────────────────────────────────────────────────
-document.getElementById('encodeProductForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-
-  const errorDiv  = document.getElementById('encodeError');
-  const submitBtn = document.getElementById('encodeSubmitBtn');
-  const name        = document.getElementById('encode_name').value.trim();
-  const description = document.getElementById('encode_description').value.trim();
-
-  errorDiv.classList.add('d-none');
-  errorDiv.textContent = '';
-
-  if (!name) {
-    errorDiv.textContent = 'Product name is required.';
-    errorDiv.classList.remove('d-none');
-    return;
-  }
-
-  submitBtn.disabled = true;
-  submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving…';
-
-  try {
-    const response = await fetch('/primary', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description }),
-    });
-
-    const data = await response.json();
-
-    if (data.success) {
-      window.location.href = '/primary?success=Primary product encoded successfully';
-    } else {
-      errorDiv.textContent = data.error || 'Failed to save product. Please try again.';
-      errorDiv.classList.remove('d-none');
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = '<i class="bi bi-save"></i> Encode Product';
-    }
-  } catch (err) {
-    errorDiv.textContent = 'Network error: ' + err.message;
-    errorDiv.classList.remove('d-none');
-    submitBtn.disabled = false;
-    submitBtn.innerHTML = '<i class="bi bi-save"></i> Encode Product';
-  }
-});
-
 // ── Credit modal ──────────────────────────────────────────────────────────────
 document.querySelectorAll('.credit-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
