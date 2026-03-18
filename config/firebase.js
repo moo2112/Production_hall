@@ -114,6 +114,6 @@ try {
   console.log("✅ Firestore db instance ready");
 } catch (e) {
   console.error("❌ Could not get Firestore instance:", e.message);
+  throw new Error("Firebase Firestore could not be initialized: " + e.message);
 }
-
 module.exports = { db, admin };
