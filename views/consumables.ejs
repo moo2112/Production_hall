@@ -61,11 +61,18 @@
                       </small>
                     </td>
                     <td class="text-end">
-                      <button class="btn btn-sm btn-outline-primary" onclick="editConsumable('<%= consumable.id %>')">
-                        <i class="bi bi-pencil"></i>
+                      <button class="btn btn-sm btn-outline-danger"
+                        onclick="openAdjustModal('<%= consumable.id %>', '<%= consumable.name %>', '<%= consumable.quantity %>', 'subtract')"
+                        title="Subtract from quantity">
+                        <i class="bi bi-dash-lg"></i>
+                      </button>
+                      <button class="btn btn-sm btn-outline-success ms-1"
+                        onclick="openAdjustModal('<%= consumable.id %>', '<%= consumable.name %>', '<%= consumable.quantity %>', 'add')"
+                        title="Add to quantity">
+                        <i class="bi bi-plus-lg"></i>
                       </button>
                       <form action="/consumables/<%= consumable.id %>?_method=DELETE" method="POST" style="display: inline;">
-                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure?')">
+                        <button type="submit" class="btn btn-sm btn-outline-danger ms-1" onclick="return confirm('Are you sure?')">
                           <i class="bi bi-trash"></i>
                         </button>
                       </form>
@@ -113,37 +120,55 @@
   </div>
 </div>
 
-<!-- Edit Consumable Modal -->
-<div class="modal fade" id="editConsumableModal" tabindex="-1">
+<!-- Adjust Quantity Modal -->
+<div class="modal fade" id="adjustQuantityModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
-      <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title">
-          <i class="bi bi-pencil"></i> Edit Consumable
-        </h5>
+      <div class="modal-header text-white" id="adjustModalHeader">
+        <h5 class="modal-title" id="adjustModalTitle">Adjust Quantity</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form id="editConsumableForm" method="POST">
-        <input type="hidden" name="_method" value="PUT">
+      <form id="adjustQuantityForm" action="" method="POST">
+        <input type="hidden" name="_method" value="PATCH">
+        <input type="hidden" name="action" id="adjustAction" value="">
         <div class="modal-body">
+          <p class="text-muted mb-1">Consumable: <strong id="adjustItemName"></strong></p>
+          <p class="text-muted mb-3">Current Quantity: <span class="badge bg-secondary" id="adjustCurrentQty"></span></p>
           <div class="mb-3">
-            <label for="edit_name" class="form-label">Consumable Name *</label>
-            <input type="text" class="form-control" id="edit_name" name="name" required>
-          </div>
-          <div class="mb-3">
-            <label for="edit_quantity" class="form-label">Quantity *</label>
-            <input type="number" class="form-control" id="edit_quantity" name="quantity" step="0.01" min="0" required>
+            <label for="adjustAmount" class="form-label">Amount to <span id="adjustVerb"></span> *</label>
+            <input type="number" class="form-control" id="adjustAmount" name="amount" step="0.01" min="0.01" required placeholder="Enter amount">
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">
-            <i class="bi bi-save"></i> Update Consumable
+          <button type="submit" class="btn" id="adjustSubmitBtn">
+            <i class="bi bi-check-lg"></i> OK
           </button>
         </div>
       </form>
     </div>
   </div>
 </div>
+
+<script>
+function openAdjustModal(id, name, currentQty, action) {
+  const isSubtract = action === 'subtract';
+  document.getElementById('adjustModalHeader').className =
+    'modal-header text-white ' + (isSubtract ? 'bg-danger' : 'bg-success');
+  document.getElementById('adjustModalTitle').innerHTML =
+    isSubtract
+      ? '<i class="bi bi-dash-circle"></i> Subtract from Quantity'
+      : '<i class="bi bi-plus-circle"></i> Add to Quantity';
+  document.getElementById('adjustItemName').textContent = name;
+  document.getElementById('adjustCurrentQty').textContent = currentQty;
+  document.getElementById('adjustAction').value = action;
+  document.getElementById('adjustVerb').textContent = isSubtract ? 'subtract' : 'add';
+  document.getElementById('adjustSubmitBtn').className =
+    'btn ' + (isSubtract ? 'btn-danger' : 'btn-success');
+  document.getElementById('adjustAmount').value = '';
+  document.getElementById('adjustQuantityForm').action = '/consumables/' + id + '/adjust';
+  new bootstrap.Modal(document.getElementById('adjustQuantityModal')).show();
+}
+</script>
 
 <%- include('partials/footer') %>

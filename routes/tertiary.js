@@ -143,7 +143,11 @@ router.post("/:id/produce", async (req, res) => {
       await TertiaryProduct.deductStock(scaled);
     }
 
-    await TertiaryProduct.increaseQuantity(id, parseFloat(amount));
+    await TertiaryProduct.addCredit(
+      id,
+      parseFloat(amount),
+      productionStatus === "Damaged",
+    );
 
     const batch = await Batch.getById(batchId);
     const batchNumber = batch ? batch.batchNumber : null;
@@ -179,7 +183,7 @@ router.post("/:id/produce", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, quantity, componentsJson } = req.body;
+    const { name, description, quantity, damages, componentsJson } = req.body;
     let components = [];
     if (componentsJson) {
       try {
@@ -191,14 +195,35 @@ router.put("/:id", async (req, res) => {
     const errors = TertiaryProduct.validate({ name, description, components });
     if (errors.length > 0)
       return res.status(400).json({ error: errors.join(", ") });
-    await TertiaryProduct.update(id, {
-      name: name.trim(),
-      description: description || "",
-      quantity: quantity !== undefined ? parseFloat(quantity) : undefined,
-      components,
-    });
+
+    const damagesAmt = parseFloat(damages) || 0;
+    let newQuantity = quantity !== undefined ? parseFloat(quantity) : undefined;
+
+    if (damagesAmt > 0 && newQuantity !== undefined) {
+      const product = await TertiaryProduct.getById(id);
+      const currentDamaged = product ? product.damagedQuantity || 0 : 0;
+      newQuantity = Math.max(0, newQuantity - damagesAmt);
+
+      await TertiaryProduct.update(id, {
+        name: name.trim(),
+        description: description || "",
+        quantity: newQuantity,
+        damagedQuantity: currentDamaged + damagesAmt,
+        components,
+      });
+    } else {
+      await TertiaryProduct.update(id, {
+        name: name.trim(),
+        description: description || "",
+        quantity: newQuantity,
+        components,
+      });
+    }
+
     await ActivityLog.log({
-      action: "Tertiary Product Updated",
+      action:
+        "Tertiary Product Updated" +
+        (damagesAmt > 0 ? ` (−${damagesAmt} damaged)` : ""),
       itemName: name,
       itemType: "Tertiary",
     });

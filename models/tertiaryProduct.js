@@ -143,6 +143,36 @@ class TertiaryProduct {
     }
   }
 
+  /**
+   * Add a production credit.
+   * - Finished: increases quantity normally.
+   * - Damaged when amount < currentStock: subtracts from quantity and tracks
+   *   the damaged portion in `damagedQuantity` so the view can display "100 -10".
+   */
+  static async addCredit(id, amount, isDamaged) {
+    try {
+      const product = await this.getById(id);
+      if (!product) throw new Error("Product not found");
+      const currentQty = product.quantity || 0;
+      const amt = parseFloat(amount);
+      const currentDamaged = product.damagedQuantity || 0;
+
+      const updateData = { updatedAt: new Date() };
+
+      if (isDamaged && currentQty > 0 && amt < currentQty) {
+        updateData.quantity = currentQty - amt;
+        updateData.damagedQuantity = currentDamaged + amt;
+      } else {
+        updateData.quantity = currentQty + amt;
+      }
+
+      await db.collection(this.collectionName).doc(id).update(updateData);
+      return await this.getById(id);
+    } catch (error) {
+      throw new Error(`Error adding credit: ${error.message}`);
+    }
+  }
+
   // Decrease quantity (consumption)
   static async decreaseQuantity(id, amount) {
     try {

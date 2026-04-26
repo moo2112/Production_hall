@@ -79,8 +79,12 @@ router.post("/:id/produce", async (req, res) => {
     const product = await PrimaryProduct.getById(id);
     if (!product) throw new Error("Product not found");
 
-    // Simply increase quantity — no consumable deduction
-    await PrimaryProduct.increaseQuantity(id, parseFloat(amount));
+    // Use addCredit to handle Finished vs Damaged stock logic
+    await PrimaryProduct.addCredit(
+      id,
+      parseFloat(amount),
+      productionStatus === "Damaged",
+    );
 
     await ActivityLog.log({
       action: `Primary Product Credit Added (${productionStatus})`,
@@ -105,17 +109,37 @@ router.post("/:id/produce", async (req, res) => {
 // ── PUT /primary/:id ──────────────────────────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
-    const { name, description, quantity } = req.body;
+    const { name, description, quantity, damages } = req.body;
     if (!name || name.trim() === "")
       return res.status(400).json({ error: "Product name is required" });
 
-    await PrimaryProduct.update(req.params.id, {
-      name: name.trim(),
-      description: description || "",
-      quantity: quantity !== undefined ? parseFloat(quantity) : undefined,
-    });
+    const damagesAmt = parseFloat(damages) || 0;
+    let newQuantity = quantity !== undefined ? parseFloat(quantity) : undefined;
+
+    // If a damage amount was entered, fetch current product to apply subtraction
+    if (damagesAmt > 0 && newQuantity !== undefined) {
+      const product = await PrimaryProduct.getById(req.params.id);
+      const currentDamaged = product ? product.damagedQuantity || 0 : 0;
+      newQuantity = Math.max(0, newQuantity - damagesAmt);
+
+      await PrimaryProduct.update(req.params.id, {
+        name: name.trim(),
+        description: description || "",
+        quantity: newQuantity,
+        damagedQuantity: currentDamaged + damagesAmt,
+      });
+    } else {
+      await PrimaryProduct.update(req.params.id, {
+        name: name.trim(),
+        description: description || "",
+        quantity: newQuantity,
+      });
+    }
+
     await ActivityLog.log({
-      action: "Primary Product Updated",
+      action:
+        "Primary Product Updated" +
+        (damagesAmt > 0 ? ` (−${damagesAmt} damaged)` : ""),
       itemName: name,
       itemType: "Primary",
     });

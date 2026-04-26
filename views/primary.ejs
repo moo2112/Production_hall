@@ -51,8 +51,13 @@
                     <td><strong><%= product.name %></strong></td>
                     <td>
                       <span class="badge bg-success fs-6">
-                        <i class="bi bi-box-seam"></i> <%= product.quantity || 0 %> units
+                        <i class="bi bi-box-seam"></i> <%= (product.quantity || 0) + (product.damagedQuantity || 0) %> units
                       </span>
+                      <% if (product.damagedQuantity && product.damagedQuantity > 0) { %>
+                        <span class="badge bg-danger fs-6 ms-1">
+                          -<%= product.damagedQuantity %>
+                        </span>
+                      <% } %>
                     </td>
                     <td class="text-muted small"><%= product.description || '-' %></td>
                     <td class="text-muted small">
@@ -202,9 +207,16 @@
             <label class="form-label fw-semibold">Product Name <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="edit_name" name="name" required>
           </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Stock (units)</label>
-            <input type="number" class="form-control" id="edit_quantity" name="quantity" step="0.01" min="0" placeholder="0">
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Stock (units)</label>
+              <input type="number" class="form-control" id="edit_quantity" name="quantity" step="0.01" min="0" placeholder="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Damages to Subtract</label>
+              <input type="number" class="form-control border-danger" id="edit_damages" name="damages" step="0.01" min="0" value="0" placeholder="0">
+              <small class="text-muted">Subtracted from stock on save.</small>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Description</label>

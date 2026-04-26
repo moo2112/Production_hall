@@ -54,6 +54,12 @@ class PrimaryProduct {
       if (data.quantity !== undefined && !isNaN(parseFloat(data.quantity))) {
         updateData.quantity = parseFloat(data.quantity);
       }
+      if (
+        data.damagedQuantity !== undefined &&
+        !isNaN(parseFloat(data.damagedQuantity))
+      ) {
+        updateData.damagedQuantity = parseFloat(data.damagedQuantity);
+      }
       await db.collection(this.collectionName).doc(id).update(updateData);
       return await this.getById(id);
     } catch (error) {
@@ -75,6 +81,38 @@ class PrimaryProduct {
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error increasing quantity: ${error.message}`);
+    }
+  }
+
+  /**
+   * Add a production credit.
+   * - Finished (or Damaged when amount >= currentStock): increases quantity normally.
+   * - Damaged when amount < currentStock: subtracts from quantity and tracks
+   *   the damaged portion in `damagedQuantity` so the view can display "100 -10".
+   */
+  static async addCredit(id, amount, isDamaged) {
+    try {
+      const product = await this.getById(id);
+      if (!product) throw new Error("Product not found");
+      const currentQty = product.quantity || 0;
+      const amt = parseFloat(amount);
+      const currentDamaged = product.damagedQuantity || 0;
+
+      const updateData = { updatedAt: new Date() };
+
+      if (isDamaged && currentQty > 0 && amt < currentQty) {
+        // Damage credit: remove units from available stock, accumulate damaged total
+        updateData.quantity = currentQty - amt;
+        updateData.damagedQuantity = currentDamaged + amt;
+      } else {
+        // Finished credit (or damaged but nothing to subtract): increase stock
+        updateData.quantity = currentQty + amt;
+      }
+
+      await db.collection(this.collectionName).doc(id).update(updateData);
+      return await this.getById(id);
+    } catch (error) {
+      throw new Error(`Error adding credit: ${error.message}`);
     }
   }
 
