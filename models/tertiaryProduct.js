@@ -1,18 +1,18 @@
 const { db } = require("../config/firebase");
+const { FieldValue } = require("firebase-admin/firestore");
 
 class TertiaryProduct {
   constructor(data) {
     this.name = data.name;
     this.description = data.description || "";
     this.quantity = data.quantity || 0;
-    this.components = data.components || []; // Array of { productId, quantity }
+    this.components = data.components || [];
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }
 
   static collectionName = "tertiaryProducts";
 
-  // Create a new tertiary product
   static async create(data) {
     try {
       const product = new TertiaryProduct(data);
@@ -27,7 +27,6 @@ class TertiaryProduct {
     }
   }
 
-  // Get all tertiary products with component details
   static async getAll() {
     try {
       const snapshot = await db
@@ -39,7 +38,6 @@ class TertiaryProduct {
       for (const doc of snapshot.docs) {
         const data = doc.data();
 
-        // Fetch component details with quantities
         const componentDetails = [];
         if (data.components && data.components.length > 0) {
           for (const comp of data.components) {
@@ -57,11 +55,7 @@ class TertiaryProduct {
           }
         }
 
-        products.push({
-          id: doc.id,
-          ...data,
-          componentDetails,
-        });
+        products.push({ id: doc.id, ...data, componentDetails });
       }
       return products;
     } catch (error) {
@@ -69,17 +63,13 @@ class TertiaryProduct {
     }
   }
 
-  // Get tertiary product by ID with component details
   static async getById(id) {
     try {
       const doc = await db.collection(this.collectionName).doc(id).get();
-      if (!doc.exists) {
-        return null;
-      }
+      if (!doc.exists) return null;
 
       const data = doc.data();
 
-      // Fetch component details with quantities
       const componentDetails = [];
       if (data.components && data.components.length > 0) {
         for (const comp of data.components) {
@@ -97,17 +87,12 @@ class TertiaryProduct {
         }
       }
 
-      return {
-        id: doc.id,
-        ...data,
-        componentDetails,
-      };
+      return { id: doc.id, ...data, componentDetails };
     } catch (error) {
       throw new Error(`Error fetching tertiary product: ${error.message}`);
     }
   }
 
-  // Update tertiary product
   static async update(id, data) {
     try {
       await db
@@ -123,20 +108,15 @@ class TertiaryProduct {
     }
   }
 
-  // Increase quantity (production)
   static async increaseQuantity(id, amount) {
     try {
-      const product = await this.getById(id);
-      if (!product) {
-        throw new Error("Product not found");
-      }
-
-      const newQuantity = (product.quantity || 0) + parseFloat(amount);
-      await db.collection(this.collectionName).doc(id).update({
-        quantity: newQuantity,
-        updatedAt: new Date(),
-      });
-
+      await db
+        .collection(this.collectionName)
+        .doc(id)
+        .update({
+          quantity: FieldValue.increment(parseFloat(amount)),
+          updatedAt: new Date(),
+        });
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error increasing quantity: ${error.message}`);
@@ -144,56 +124,61 @@ class TertiaryProduct {
   }
 
   /**
-   * Add a production credit.
-   * - Finished: increases quantity normally.
-   * - Damaged when amount < currentStock: subtracts from quantity and tracks
-   *   the damaged portion in `damagedQuantity` so the view can display "100 -10".
+   * Add a production credit — uses a Firestore transaction so the
+   * read+write is atomic and costs ONE round-trip instead of three.
    */
   static async addCredit(id, amount, isDamaged) {
     try {
-      const product = await this.getById(id);
-      if (!product) throw new Error("Product not found");
-      const currentQty = product.quantity || 0;
-      const amt = parseFloat(amount);
-      const currentDamaged = product.damagedQuantity || 0;
+      const docRef = db.collection(this.collectionName).doc(id);
 
-      const updateData = { updatedAt: new Date() };
+      await db.runTransaction(async (t) => {
+        const doc = await t.get(docRef);
+        if (!doc.exists) throw new Error("Product not found");
 
-      if (isDamaged && currentQty > 0 && amt < currentQty) {
-        updateData.quantity = currentQty - amt;
-        updateData.damagedQuantity = currentDamaged + amt;
-      } else {
-        updateData.quantity = currentQty + amt;
-      }
+        const currentQty = doc.data().quantity || 0;
+        const amt = parseFloat(amount);
+        const currentDamaged = doc.data().damagedQuantity || 0;
 
-      await db.collection(this.collectionName).doc(id).update(updateData);
+        const updateData = { updatedAt: new Date() };
+        if (isDamaged && currentQty > 0 && amt < currentQty) {
+          updateData.quantity = currentQty - amt;
+          updateData.damagedQuantity = currentDamaged + amt;
+        } else {
+          updateData.quantity = currentQty + amt;
+        }
+        t.update(docRef, updateData);
+      });
+
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error adding credit: ${error.message}`);
     }
   }
 
-  // Decrease quantity (consumption)
+  /**
+   * Decrease quantity — Firestore transaction for atomic read+check+write.
+   * ONE round-trip instead of three.
+   */
   static async decreaseQuantity(id, amount) {
     try {
-      const product = await this.getById(id);
-      if (!product) {
-        throw new Error("Product not found");
-      }
+      const docRef = db.collection(this.collectionName).doc(id);
+      const reduce = parseFloat(amount);
 
-      const currentQty = product.quantity || 0;
-      const decreaseAmount = parseFloat(amount);
+      await db.runTransaction(async (t) => {
+        const doc = await t.get(docRef);
+        if (!doc.exists) throw new Error("Product not found");
 
-      if (currentQty < decreaseAmount) {
-        throw new Error(
-          `Insufficient stock. Available: ${currentQty}, Required: ${decreaseAmount}`,
-        );
-      }
-
-      const newQuantity = currentQty - decreaseAmount;
-      await db.collection(this.collectionName).doc(id).update({
-        quantity: newQuantity,
-        updatedAt: new Date(),
+        const current = doc.data().quantity || 0;
+        const name = doc.data().name || id;
+        if (current < reduce) {
+          throw new Error(
+            `Not enough "${name}": available ${current}, need ${reduce}`,
+          );
+        }
+        t.update(docRef, {
+          quantity: FieldValue.increment(-reduce),
+          updatedAt: new Date(),
+        });
       });
 
       return await this.getById(id);
@@ -202,22 +187,28 @@ class TertiaryProduct {
     }
   }
 
-  // Check stock availability for components
+  /**
+   * Check stock availability — reads ALL secondary components in PARALLEL.
+   */
   static async checkStockAvailability(components) {
     const errors = [];
     if (!components || components.length === 0) return errors;
 
-    for (const comp of components) {
-      if (!comp.productId) continue;
-      const doc = await db
-        .collection("secondaryProducts")
-        .doc(comp.productId)
-        .get();
+    // Fetch all secondary docs in parallel — ONE round-trip instead of N
+    const validComps = components.filter((c) => c.productId);
+    const docs = await Promise.all(
+      validComps.map((c) =>
+        db.collection("secondaryProducts").doc(c.productId).get(),
+      ),
+    );
+
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      const comp = validComps[i];
       if (!doc.exists) continue;
-      const data = doc.data();
-      const available = data.quantity || 0;
+      const available = doc.data().quantity || 0;
       const required = parseFloat(comp.quantity) || 0;
-      const label = data.name || comp.productId;
+      const label = doc.data().name || comp.productId;
       if (available < required) {
         errors.push(
           `Not enough "${label}": available ${available}, need ${required}`,
@@ -227,19 +218,51 @@ class TertiaryProduct {
     return errors;
   }
 
-  // Deduct stock from secondary products
+  /**
+   * Deduct stock from secondary products — reads ALL in parallel, then
+   * commits ALL writes in a single Firestore batch.
+   * Was: 3N sequential operations per secondary product. Now: N parallel reads + 1 batch write.
+   */
   static async deductStock(components) {
     try {
-      const SecondaryProduct = require("./secondaryProduct");
-      for (const comp of components) {
-        await SecondaryProduct.decreaseQuantity(comp.productId, comp.quantity);
+      if (!components || components.length === 0) return;
+
+      const refs = components.map((c) =>
+        db.collection("secondaryProducts").doc(c.productId),
+      );
+      const docs = await Promise.all(refs.map((r) => r.get()));
+
+      // Validate all stock before writing anything
+      for (let i = 0; i < docs.length; i++) {
+        const doc = docs[i];
+        if (!doc.exists) {
+          throw new Error(
+            `Secondary product ${components[i].productId} not found`,
+          );
+        }
+        const available = doc.data().quantity || 0;
+        const needed = parseFloat(components[i].quantity);
+        if (available < needed) {
+          throw new Error(
+            `Not enough "${doc.data().name}": available ${available}, need ${needed}`,
+          );
+        }
       }
+
+      // Commit all deductions in a single batch — 1 write round-trip
+      const batch = db.batch();
+      for (let i = 0; i < components.length; i++) {
+        batch.update(refs[i], {
+          quantity: FieldValue.increment(-parseFloat(components[i].quantity)),
+          updatedAt: new Date(),
+        });
+      }
+      await batch.commit();
     } catch (error) {
       throw new Error(`Error deducting stock: ${error.message}`);
     }
   }
 
-  // Delete tertiary product
   static async delete(id) {
     try {
       await db.collection(this.collectionName).doc(id).delete();
@@ -249,7 +272,6 @@ class TertiaryProduct {
     }
   }
 
-  // Validate tertiary product data
   static validate(data) {
     const errors = [];
 

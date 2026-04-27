@@ -163,11 +163,18 @@ router.post("/:id/produce", async (req, res) => {
 
     res.redirect("/secondary?success=Production credit added successfully");
   } catch (error) {
-    const [products, primaryProducts, batches] = await Promise.all([
-      SecondaryProduct.getAll(),
-      PrimaryProduct.getAll(),
-      Batch.getAll(),
-    ]);
+    let products = [],
+      primaryProducts = [],
+      batches = [];
+    try {
+      [products, primaryProducts, batches] = await Promise.all([
+        SecondaryProduct.getAll(),
+        PrimaryProduct.getAll(),
+        Batch.getAll(),
+      ]);
+    } catch (_) {
+      /* render with empty arrays rather than crashing */
+    }
     res.render("secondary", {
       title: "Secondary Products",
       products,

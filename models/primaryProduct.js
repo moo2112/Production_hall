@@ -1,4 +1,5 @@
 const { db } = require("../config/firebase");
+const { FieldValue } = require("firebase-admin/firestore");
 
 /**
  * PrimaryProduct model
@@ -12,7 +13,7 @@ class PrimaryProduct {
       const docRef = await db.collection(this.collectionName).add({
         name: data.name,
         description: data.description || "",
-        quantity: 0, // always starts at 0 — credit adds to it
+        quantity: 0,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -69,13 +70,11 @@ class PrimaryProduct {
 
   static async increaseQuantity(id, amount) {
     try {
-      const product = await this.getById(id);
-      if (!product) throw new Error("Product not found");
       await db
         .collection(this.collectionName)
         .doc(id)
         .update({
-          quantity: (product.quantity || 0) + parseFloat(amount),
+          quantity: FieldValue.increment(parseFloat(amount)),
           updatedAt: new Date(),
         });
       return await this.getById(id);
@@ -85,55 +84,63 @@ class PrimaryProduct {
   }
 
   /**
-   * Add a production credit.
-   * - Finished (or Damaged when amount >= currentStock): increases quantity normally.
-   * - Damaged when amount < currentStock: subtracts from quantity and tracks
-   *   the damaged portion in `damagedQuantity` so the view can display "100 -10".
+   * Add a production credit — uses a Firestore transaction so the
+   * read+write is atomic and costs ONE round-trip instead of three.
    */
   static async addCredit(id, amount, isDamaged) {
     try {
-      const product = await this.getById(id);
-      if (!product) throw new Error("Product not found");
-      const currentQty = product.quantity || 0;
-      const amt = parseFloat(amount);
-      const currentDamaged = product.damagedQuantity || 0;
+      const docRef = db.collection(this.collectionName).doc(id);
 
-      const updateData = { updatedAt: new Date() };
+      await db.runTransaction(async (t) => {
+        const doc = await t.get(docRef);
+        if (!doc.exists) throw new Error("Product not found");
 
-      if (isDamaged && currentQty > 0 && amt < currentQty) {
-        // Damage credit: remove units from available stock, accumulate damaged total
-        updateData.quantity = currentQty - amt;
-        updateData.damagedQuantity = currentDamaged + amt;
-      } else {
-        // Finished credit (or damaged but nothing to subtract): increase stock
-        updateData.quantity = currentQty + amt;
-      }
+        const currentQty = doc.data().quantity || 0;
+        const amt = parseFloat(amount);
+        const currentDamaged = doc.data().damagedQuantity || 0;
 
-      await db.collection(this.collectionName).doc(id).update(updateData);
+        const updateData = { updatedAt: new Date() };
+        if (isDamaged && currentQty > 0 && amt < currentQty) {
+          updateData.quantity = currentQty - amt;
+          updateData.damagedQuantity = currentDamaged + amt;
+        } else {
+          updateData.quantity = currentQty + amt;
+        }
+        t.update(docRef, updateData);
+      });
+
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error adding credit: ${error.message}`);
     }
   }
 
+  /**
+   * Decrease quantity — Firestore transaction for atomic read+check+write.
+   * Reduces from 3 sequential Firestore calls to 1 round-trip.
+   */
   static async decreaseQuantity(id, amount) {
     try {
-      const product = await this.getById(id);
-      if (!product) throw new Error("Product not found");
-      const current = product.quantity || 0;
+      const docRef = db.collection(this.collectionName).doc(id);
       const reduce = parseFloat(amount);
-      if (current < reduce) {
-        throw new Error(
-          `Not enough "${product.name}": available ${current}, need ${reduce}`,
-        );
-      }
-      await db
-        .collection(this.collectionName)
-        .doc(id)
-        .update({
-          quantity: current - reduce,
+
+      await db.runTransaction(async (t) => {
+        const doc = await t.get(docRef);
+        if (!doc.exists) throw new Error("Product not found");
+
+        const current = doc.data().quantity || 0;
+        const name = doc.data().name || id;
+        if (current < reduce) {
+          throw new Error(
+            `Not enough "${name}": available ${current}, need ${reduce}`,
+          );
+        }
+        t.update(docRef, {
+          quantity: FieldValue.increment(-reduce),
           updatedAt: new Date(),
         });
+      });
+
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error decreasing quantity: ${error.message}`);
