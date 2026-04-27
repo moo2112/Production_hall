@@ -308,13 +308,11 @@ async function editConsumable(id) {
     const response = await fetch(`/consumables/${id}`);
     const consumable = await response.json();
 
-    // Populate edit form
     document.getElementById("edit_name").value = consumable.name;
     document.getElementById("edit_quantity").value = consumable.quantity;
     document.getElementById("editConsumableForm").action =
       `/consumables/${id}?_method=PUT`;
 
-    // Show modal
     const modal = new bootstrap.Modal(
       document.getElementById("editConsumableModal"),
     );
@@ -399,7 +397,6 @@ function buildEditComponentPicker(
     listEl.appendChild(row);
   });
 
-  // Wire up Add
   listEl.querySelectorAll(".ec-add").forEach((btn) => {
     btn.addEventListener("click", function () {
       const pid = this.dataset.id;
@@ -420,7 +417,6 @@ function buildEditComponentPicker(
     });
   });
 
-  // Wire up Increase
   listEl.querySelectorAll(".ec-inc").forEach((btn) => {
     btn.addEventListener("click", function () {
       const pid = this.dataset.id;
@@ -432,7 +428,6 @@ function buildEditComponentPicker(
     });
   });
 
-  // Wire up Decrease / Remove
   listEl.querySelectorAll(".ec-dec").forEach((btn) => {
     btn.addEventListener("click", function () {
       const pid = this.dataset.id;
@@ -454,7 +449,6 @@ function buildEditComponentPicker(
     });
   });
 
-  // Wire up manual input
   listEl.querySelectorAll(".ec-qty").forEach((inp) => {
     inp.addEventListener("input", function () {
       const pid = this.dataset.id;
@@ -584,15 +578,25 @@ async function editTertiaryProduct(id) {
   }
 }
 
-// Auto-dismiss alerts after 5 seconds
+// ── Alert auto-dismiss ─────────────────────────────────────────────────────────
+// Only SUCCESS alerts auto-dismiss. ERROR alerts stay until manually closed
+// so the user can read what went wrong.
 document.addEventListener("DOMContentLoaded", function () {
-  const alerts = document.querySelectorAll(".alert");
-  alerts.forEach((alert) => {
+  const successAlerts = document.querySelectorAll(".alert-success");
+  successAlerts.forEach((alert) => {
     setTimeout(() => {
-      const bsAlert = new bootstrap.Alert(alert);
-      bsAlert.close();
+      try {
+        const bsAlert = new bootstrap.Alert(alert);
+        bsAlert.close();
+      } catch (_) {}
     }, 5000);
   });
+
+  // Scroll error alerts into view immediately
+  const errorAlert = document.querySelector(".alert-danger");
+  if (errorAlert) {
+    errorAlert.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 });
 
 // Form validation
