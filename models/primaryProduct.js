@@ -84,6 +84,32 @@ class PrimaryProduct {
   }
 
   /**
+   * Atomically increment the damagedQuantity counter on a primary product.
+   * Called when a secondary (or tertiary) production run is marked Damaged —
+   * every primary component actually consumed in that run is credited here so
+   * the Primary Products page shows the correct damaged tally.
+   *
+   * Uses FieldValue.increment so concurrent writes stay consistent and only
+   * ONE Firestore write is needed (no read-then-write race condition).
+   */
+  static async incrementDamaged(id, amount) {
+    try {
+      await db
+        .collection(this.collectionName)
+        .doc(id)
+        .update({
+          damagedQuantity: FieldValue.increment(parseFloat(amount)),
+          updatedAt: new Date(),
+        });
+    } catch (error) {
+      // Non-fatal: log but don't crash the production credit flow
+      console.error(
+        `incrementDamaged failed for primary ${id}: ${error.message}`,
+      );
+    }
+  }
+
+  /**
    * Add a production credit — uses a Firestore transaction so the
    * read+write is atomic and costs ONE round-trip instead of three.
    */
@@ -117,7 +143,6 @@ class PrimaryProduct {
 
   /**
    * Decrease quantity — Firestore transaction for atomic read+check+write.
-   * Reduces from 3 sequential Firestore calls to 1 round-trip.
    */
   static async decreaseQuantity(id, amount) {
     try {

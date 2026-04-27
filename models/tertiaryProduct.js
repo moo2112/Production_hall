@@ -5,14 +5,13 @@ class TertiaryProduct {
     this.name = data.name;
     this.description = data.description || "";
     this.quantity = data.quantity || 0;
-    this.components = data.components || []; // Array of { productId, quantity }
+    this.components = data.components || [];
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }
 
   static collectionName = "tertiaryProducts";
 
-  // Create a new tertiary product
   static async create(data) {
     try {
       const product = new TertiaryProduct(data);
@@ -27,19 +26,15 @@ class TertiaryProduct {
     }
   }
 
-  // Get all tertiary products with component details
   static async getAll() {
     try {
       const snapshot = await db
         .collection(this.collectionName)
         .orderBy("createdAt", "desc")
         .get();
-
       const products = [];
       for (const doc of snapshot.docs) {
         const data = doc.data();
-
-        // Fetch component details with quantities
         const componentDetails = [];
         if (data.components && data.components.length > 0) {
           for (const comp of data.components) {
@@ -56,12 +51,7 @@ class TertiaryProduct {
             }
           }
         }
-
-        products.push({
-          id: doc.id,
-          ...data,
-          componentDetails,
-        });
+        products.push({ id: doc.id, ...data, componentDetails });
       }
       return products;
     } catch (error) {
@@ -69,17 +59,11 @@ class TertiaryProduct {
     }
   }
 
-  // Get tertiary product by ID with component details
   static async getById(id) {
     try {
       const doc = await db.collection(this.collectionName).doc(id).get();
-      if (!doc.exists) {
-        return null;
-      }
-
+      if (!doc.exists) return null;
       const data = doc.data();
-
-      // Fetch component details with quantities
       const componentDetails = [];
       if (data.components && data.components.length > 0) {
         for (const comp of data.components) {
@@ -96,59 +80,39 @@ class TertiaryProduct {
           }
         }
       }
-
-      return {
-        id: doc.id,
-        ...data,
-        componentDetails,
-      };
+      return { id: doc.id, ...data, componentDetails };
     } catch (error) {
       throw new Error(`Error fetching tertiary product: ${error.message}`);
     }
   }
 
-  // Update tertiary product
   static async update(id, data) {
     try {
       await db
         .collection(this.collectionName)
         .doc(id)
-        .update({
-          ...data,
-          updatedAt: new Date(),
-        });
+        .update({ ...data, updatedAt: new Date() });
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error updating tertiary product: ${error.message}`);
     }
   }
 
-  // Increase quantity (production)
   static async increaseQuantity(id, amount) {
     try {
       const product = await this.getById(id);
-      if (!product) {
-        throw new Error("Product not found");
-      }
-
+      if (!product) throw new Error("Product not found");
       const newQuantity = (product.quantity || 0) + parseFloat(amount);
-      await db.collection(this.collectionName).doc(id).update({
-        quantity: newQuantity,
-        updatedAt: new Date(),
-      });
-
+      await db
+        .collection(this.collectionName)
+        .doc(id)
+        .update({ quantity: newQuantity, updatedAt: new Date() });
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error increasing quantity: ${error.message}`);
     }
   }
 
-  /**
-   * Add a production credit.
-   * - Finished: increases quantity normally.
-   * - Damaged when amount < currentStock: subtracts from quantity and tracks
-   *   the damaged portion in `damagedQuantity` so the view can display "100 -10".
-   */
   static async addCredit(id, amount, isDamaged) {
     try {
       const product = await this.getById(id);
@@ -156,16 +120,13 @@ class TertiaryProduct {
       const currentQty = product.quantity || 0;
       const amt = parseFloat(amount);
       const currentDamaged = product.damagedQuantity || 0;
-
       const updateData = { updatedAt: new Date() };
-
       if (isDamaged && currentQty > 0 && amt < currentQty) {
         updateData.quantity = currentQty - amt;
         updateData.damagedQuantity = currentDamaged + amt;
       } else {
         updateData.quantity = currentQty + amt;
       }
-
       await db.collection(this.collectionName).doc(id).update(updateData);
       return await this.getById(id);
     } catch (error) {
@@ -173,39 +134,55 @@ class TertiaryProduct {
     }
   }
 
-  // Decrease quantity (consumption)
+  /**
+   * Record a sale: deduct soldQuantity from current stock and accumulate soldQuantity.
+   */
+  static async recordSale(id, amount) {
+    try {
+      const product = await this.getById(id);
+      if (!product) throw new Error("Product not found");
+      const currentQty = product.quantity || 0;
+      const currentSold = product.soldQuantity || 0;
+      const amt = parseFloat(amount);
+      if (amt > currentQty)
+        throw new Error(`Cannot sell ${amt} — only ${currentQty} available`);
+      await db
+        .collection(this.collectionName)
+        .doc(id)
+        .update({
+          quantity: currentQty - amt,
+          soldQuantity: currentSold + amt,
+          updatedAt: new Date(),
+        });
+      return await this.getById(id);
+    } catch (error) {
+      throw new Error(`Error recording sale: ${error.message}`);
+    }
+  }
+
   static async decreaseQuantity(id, amount) {
     try {
       const product = await this.getById(id);
-      if (!product) {
-        throw new Error("Product not found");
-      }
-
+      if (!product) throw new Error("Product not found");
       const currentQty = product.quantity || 0;
       const decreaseAmount = parseFloat(amount);
-
-      if (currentQty < decreaseAmount) {
+      if (currentQty < decreaseAmount)
         throw new Error(
           `Insufficient stock. Available: ${currentQty}, Required: ${decreaseAmount}`,
         );
-      }
-
       const newQuantity = currentQty - decreaseAmount;
-      await db.collection(this.collectionName).doc(id).update({
-        quantity: newQuantity,
-        updatedAt: new Date(),
-      });
-
+      await db
+        .collection(this.collectionName)
+        .doc(id)
+        .update({ quantity: newQuantity, updatedAt: new Date() });
       return await this.getById(id);
     } catch (error) {
       throw new Error(`Error decreasing quantity: ${error.message}`);
     }
   }
 
-  // Check stock availability for components
   static async checkStockAvailability(components) {
     if (!components || components.length === 0) return [];
-
     const checks = components
       .filter((c) => c.productId)
       .map(async (comp) => {
@@ -218,17 +195,14 @@ class TertiaryProduct {
         const available = data.quantity || 0;
         const required = parseFloat(comp.quantity) || 0;
         const label = data.name || comp.productId;
-        if (available < required) {
+        if (available < required)
           return `Not enough "${label}": available ${available}, need ${required}`;
-        }
         return null;
       });
-
     const results = await Promise.all(checks);
     return results.filter(Boolean);
   }
 
-  // Deduct stock from secondary products
   static async deductStock(components) {
     try {
       const SecondaryProduct = require("./secondaryProduct");
@@ -242,7 +216,6 @@ class TertiaryProduct {
     }
   }
 
-  // Delete tertiary product
   static async delete(id) {
     try {
       await db.collection(this.collectionName).doc(id).delete();
@@ -252,27 +225,19 @@ class TertiaryProduct {
     }
   }
 
-  // Validate tertiary product data
   static validate(data) {
     const errors = [];
-
-    if (!data.name || data.name.trim() === "") {
+    if (!data.name || data.name.trim() === "")
       errors.push("Product name is required");
-    }
-
-    if (!data.components || data.components.length === 0) {
+    if (!data.components || data.components.length === 0)
       errors.push("At least one secondary product component is required");
-    }
-
     if (data.components && data.components.length > 0) {
       const hasInvalidQuantity = data.components.some(
         (comp) => !comp.quantity || comp.quantity <= 0,
       );
-      if (hasInvalidQuantity) {
+      if (hasInvalidQuantity)
         errors.push("All component quantities must be greater than 0");
-      }
     }
-
     return errors;
   }
 }

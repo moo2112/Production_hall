@@ -37,7 +37,6 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name, description, componentsJson } = req.body;
-
     let components = [];
     if (componentsJson) {
       try {
@@ -46,7 +45,6 @@ router.post("/", async (req, res) => {
         throw new Error("Invalid components data");
       }
     }
-
     const errors = SecondaryProduct.validate({ name, description, components });
     if (errors.length > 0) {
       const [products, primaryProducts, batches] = await Promise.all([
@@ -63,22 +61,18 @@ router.post("/", async (req, res) => {
         success: null,
       });
     }
-
-    // Save definition only — NO stock deduction
     await SecondaryProduct.create({
       name: name.trim(),
       description: description || "",
       quantity: 0,
       components,
     });
-
     await ActivityLog.log({
       action: "Secondary Product Encoded",
       itemName: name,
       itemType: "Secondary",
       notes: `Recipe: ${components.length} primary component(s)`,
     });
-
     res.redirect("/secondary?success=Secondary product encoded successfully");
   } catch (error) {
     const [products, primaryProducts, batches] = await Promise.all([
@@ -119,33 +113,54 @@ router.post("/:id/produce", async (req, res) => {
     const product = await SecondaryProduct.getById(id);
     if (!product) throw new Error("Product not found");
 
+    const productionAmount = parseFloat(amount);
     let componentsToDeduct = product.components || [];
+    let removedIds = [];
 
+    // ── Damaged: filter out unchecked (missing) components ───────────────────
+    // For Finished: always deduct ALL components regardless of removedComponentsJson.
     if (productionStatus === "Damaged" && removedComponentsJson) {
       try {
-        const removed = JSON.parse(removedComponentsJson);
+        removedIds = JSON.parse(removedComponentsJson);
         componentsToDeduct = componentsToDeduct.filter(
-          (c) => !removed.includes(c.productId),
+          (c) => !removedIds.includes(c.productId),
         );
       } catch (e) {
-        /* ignore */
+        /* ignore parse errors — proceed with full deduction */
       }
     }
 
+    // Scale component quantities by the number of units produced
     const scaled = componentsToDeduct.map((c) => ({
       ...c,
-      quantity: parseFloat(c.quantity) * parseFloat(amount),
+      quantity: parseFloat(c.quantity) * productionAmount,
     }));
 
+    // ── Stock availability check & deduction ─────────────────────────────────
     if (scaled.length > 0) {
       const stockErrors = await SecondaryProduct.checkStockAvailability(scaled);
       if (stockErrors.length > 0) throw new Error(stockErrors.join(", "));
       await SecondaryProduct.deductStock(scaled);
     }
 
+    // ── FIX: Damaged sync to Primary Products page ───────────────────────────
+    // When this secondary production run is Damaged, every primary component
+    // that WAS consumed (i.e. the checked / not-removed ones) must also have
+    // its damagedQuantity incremented on the Primary Product document.
+    // This ensures the Primary Products page correctly reflects which components
+    // were consumed in a failed/damaged run, making the damaged tally visible.
+    if (productionStatus === "Damaged" && scaled.length > 0) {
+      await Promise.all(
+        scaled.map((comp) =>
+          PrimaryProduct.incrementDamaged(comp.productId, comp.quantity),
+        ),
+      );
+    }
+
+    // ── Record production credit on secondary product ─────────────────────────
     await SecondaryProduct.addCredit(
       id,
-      parseFloat(amount),
+      productionAmount,
       productionStatus === "Damaged",
     );
 
@@ -157,7 +172,7 @@ router.post("/:id/produce", async (req, res) => {
       itemName: batchItemName || product.name,
       itemType: "Secondary",
       batchNumber,
-      quantity: parseFloat(amount),
+      quantity: productionAmount,
       status: productionStatus,
     });
 
@@ -172,9 +187,7 @@ router.post("/:id/produce", async (req, res) => {
         PrimaryProduct.getAll(),
         Batch.getAll(),
       ]);
-    } catch (_) {
-      /* render with empty arrays rather than crashing */
-    }
+    } catch (_) {}
     res.render("secondary", {
       title: "Secondary Products",
       products,
@@ -204,13 +217,17 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ error: errors.join(", ") });
 
     const damagesAmt = parseFloat(damages) || 0;
-    let newQuantity = quantity !== undefined ? parseFloat(quantity) : undefined;
+    const product = await SecondaryProduct.getById(id);
+    const currentDamaged = product ? product.damagedQuantity || 0 : 0;
+    let newQuantity =
+      quantity !== undefined
+        ? parseFloat(quantity)
+        : product
+          ? product.quantity || 0
+          : 0;
 
-    if (damagesAmt > 0 && newQuantity !== undefined) {
-      const product = await SecondaryProduct.getById(id);
-      const currentDamaged = product ? product.damagedQuantity || 0 : 0;
+    if (damagesAmt > 0) {
       newQuantity = Math.max(0, newQuantity - damagesAmt);
-
       await SecondaryProduct.update(id, {
         name: name.trim(),
         description: description || "",

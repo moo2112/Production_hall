@@ -23,36 +23,27 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ── POST /primary — ENCODE only (just save name/description, no stock change) ─
+// ── POST /primary — ENCODE only ───────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
     const { name, description } = req.body;
-
     if (!name || name.trim() === "")
       throw new Error("Product name is required");
-
     await PrimaryProduct.create({
       name: name.trim(),
       description: description || "",
     });
-
     await ActivityLog.log({
       action: "Primary Product Encoded",
       itemName: name.trim(),
       itemType: "Primary",
     });
-
     res.redirect("/primary?success=Primary product encoded successfully");
   } catch (error) {
-    console.error("POST /primary error:", error.message);
-
-    // Safely fetch products for re-render — catch any secondary failure
     let products = [];
     try {
       products = await PrimaryProduct.getAll();
-    } catch (e) {
-      console.error("getAll failed in catch block:", e.message);
-    }
+    } catch (e) {}
     res.render("primary", {
       title: "Primary Products",
       products,
@@ -62,30 +53,24 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ── POST /primary/:id/produce — ADD CREDIT (quantity only, no consumable logic)
+// ── POST /primary/:id/produce — ADD CREDIT
 router.post("/:id/produce", async (req, res) => {
   try {
     const { id } = req.params;
     const { amount, productionStatus } = req.body;
-
     if (!amount || parseFloat(amount) <= 0)
       throw new Error("Please enter a valid production quantity");
-
     if (!["Finished", "Damaged"].includes(productionStatus))
       throw new Error(
         "Please select a production status (Finished or Damaged)",
       );
-
     const product = await PrimaryProduct.getById(id);
     if (!product) throw new Error("Product not found");
-
-    // Use addCredit to handle Finished vs Damaged stock logic
     await PrimaryProduct.addCredit(
       id,
       parseFloat(amount),
       productionStatus === "Damaged",
     );
-
     await ActivityLog.log({
       action: `Primary Product Credit Added (${productionStatus})`,
       itemName: product.name,
@@ -93,7 +78,6 @@ router.post("/:id/produce", async (req, res) => {
       quantity: parseFloat(amount),
       status: productionStatus,
     });
-
     res.redirect("/primary?success=Production credit added successfully");
   } catch (error) {
     const products = await PrimaryProduct.getAll();
@@ -114,14 +98,20 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ error: "Product name is required" });
 
     const damagesAmt = parseFloat(damages) || 0;
-    let newQuantity = quantity !== undefined ? parseFloat(quantity) : undefined;
+    const product = await PrimaryProduct.getById(req.params.id);
+    const currentDamaged = product ? product.damagedQuantity || 0 : 0;
 
-    // If a damage amount was entered, fetch current product to apply subtraction
-    if (damagesAmt > 0 && newQuantity !== undefined) {
-      const product = await PrimaryProduct.getById(req.params.id);
-      const currentDamaged = product ? product.damagedQuantity || 0 : 0;
+    // quantity from the form is the current stock value; subtract damages from it
+    let newQuantity =
+      quantity !== undefined
+        ? parseFloat(quantity)
+        : product
+          ? product.quantity || 0
+          : 0;
+
+    if (damagesAmt > 0) {
+      // Deduct the damaged amount from the quantity entered in the form
       newQuantity = Math.max(0, newQuantity - damagesAmt);
-
       await PrimaryProduct.update(req.params.id, {
         name: name.trim(),
         description: description || "",

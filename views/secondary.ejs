@@ -48,11 +48,11 @@
                     <td><strong><%= product.name %></strong></td>
                     <td>
                       <span class="badge bg-warning text-dark fs-6">
-                        <i class="bi bi-box-seam"></i> <%= (product.quantity || 0) + (product.damagedQuantity || 0) %> units
+                        <i class="bi bi-box-seam"></i> <%= product.quantity || 0 %> units
                       </span>
                       <% if (product.damagedQuantity && product.damagedQuantity > 0) { %>
-                        <span class="badge bg-danger fs-6 ms-1">
-                          -<%= product.damagedQuantity %>
+                        <span class="badge bg-danger fs-6 ms-1" title="Total damaged">
+                          <i class="bi bi-exclamation-triangle-fill"></i> <%= product.damagedQuantity %> dmg
                         </span>
                       <% } %>
                     </td>
@@ -414,7 +414,9 @@ function onBatchSelected(sel) {
 function onCreditStatusChange() {
   const isDamaged = document.getElementById('s_statusDamaged').checked;
   document.getElementById('s_damagedSection').style.display = isDamaged ? '' : 'none';
+
   if (isDamaged) {
+    // Rebuild checkboxes fresh every time Damaged is selected
     const html = creditComponentDetails.length > 0
       ? creditComponentDetails.map(c =>
           '<div class="form-check mb-2">' +
@@ -427,13 +429,27 @@ function onCreditStatusChange() {
         ).join('')
       : '<p class="text-muted small mb-0">No components in recipe.</p>';
     document.getElementById('s_componentCheckboxes').innerHTML = html;
+    updateRemovedComponents();
+  } else {
+    // FIX: When switching away from Damaged, immediately clear the removed list
+    // and wipe the checkbox section so no stale unchecked boxes remain in the DOM.
+    document.getElementById('s_componentCheckboxes').innerHTML =
+      '<p class="text-muted small mb-0">Select Damaged status first.</p>';
+    document.getElementById('removedComponentsJson').value = '[]';
   }
-  updateRemovedComponents();
 }
 
 function updateRemovedComponents() {
+  // FIX: Only collect unchecked boxes when the Damaged section is actually visible.
+  // Previously, hidden unchecked checkboxes were still collected, causing stale
+  // removedComponentsJson that incorrectly listed primary components as missing.
+  const section = document.getElementById('s_damagedSection');
+  const isDamagedVisible = section && section.style.display !== 'none';
   const unchecked = [];
-  document.querySelectorAll('.component-check:not(:checked)').forEach(cb => unchecked.push(cb.value));
+  if (isDamagedVisible) {
+    document.querySelectorAll('#s_componentCheckboxes .component-check:not(:checked)')
+      .forEach(cb => unchecked.push(cb.value));
+  }
   document.getElementById('removedComponentsJson').value = JSON.stringify(unchecked);
 }
 
@@ -442,6 +458,12 @@ document.getElementById('creditForm').addEventListener('submit', function(e) {
   if (!status) { e.preventDefault(); alert('Please select a production status.'); return; }
   const bsel = document.getElementById('creditBatchSelector');
   if (bsel && !bsel.value) { e.preventDefault(); alert('Batch Number is required to add production credit.'); return; }
+
+  // Safety: if Finished is selected, always clear removedComponentsJson so all
+  // primary components are deducted correctly regardless of any prior Damaged state.
+  if (status.value === 'Finished') {
+    document.getElementById('removedComponentsJson').value = '[]';
+  }
 });
 
 // ── Edit modal handled by main.js ─────────────────────────────────────────────

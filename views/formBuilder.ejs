@@ -134,7 +134,18 @@
                         </div>
                       </div>
                       <div class="d-flex gap-1">
-                        <button class="btn btn-sm btn-outline-secondary" onclick="loadTemplateIntoDesigner('<%= t.id %>', '<%- encodeURIComponent(t.name) %>', <%- JSON.stringify(t.fields || []) %>)" title="Edit">
+                        <%#
+                          FIX: Previously the Edit button passed JSON.stringify(t.fields) directly
+                          inside an onclick="..." double-quoted HTML attribute. Any " character
+                          inside the JSON immediately ended the attribute, so the click handler
+                          was silently broken. Now we only pass the template ID — the JS
+                          loadTemplateIntoDesigner() function looks up the full data from the
+                          savedTemplates array that is safely embedded in a <script> block below.
+                        %>
+                        <button
+                          class="btn btn-sm btn-outline-secondary"
+                          onclick="loadTemplateIntoDesigner('<%= t.id %>')"
+                          title="Edit">
                           <i class="bi bi-pencil"></i>
                         </button>
                         <form action="/form-builder/<%= t.id %>?_method=DELETE" method="POST" style="display:inline">
@@ -156,14 +167,24 @@
 </div>
 
 <script>
-  let fields = [];
+  // ── Saved templates data ──────────────────────────────────────────────────
+  // FIX: All template data (including fields with arbitrary string content) is
+  // embedded here in a <script> block where JSON double-quotes are safe.
+  // The onclick handlers only pass the template ID — no raw JSON in HTML attrs.
+  const savedTemplates = <%- JSON.stringify(templates).replace(/<\/script>/gi, '<\\/script>') %>;
+
+  // ── Designer state ────────────────────────────────────────────────────────
+  let fields    = [];
   let editingId = null;
 
+  // ── Field type helpers ────────────────────────────────────────────────────
   function toggleDropdownOpts() {
     const t = document.getElementById('newFieldType').value;
-    document.getElementById('dropdownOptsRow').style.display = t === 'dropdown' ? '' : 'none';
+    document.getElementById('dropdownOptsRow').style.display =
+      t === 'dropdown' ? '' : 'none';
   }
 
+  // ── Add a custom field to the designer ───────────────────────────────────
   function addField() {
     const label = document.getElementById('newFieldLabel').value.trim();
     const type  = document.getElementById('newFieldType').value;
@@ -177,26 +198,32 @@
       label,
       type,
       required: req,
-      options:  type === 'dropdown' ? opts.split(',').map(o => o.trim()).filter(Boolean) : [],
+      options:  type === 'dropdown'
+        ? opts.split(',').map(o => o.trim()).filter(Boolean)
+        : [],
     };
 
     fields.push(field);
     renderFields();
 
-    // Reset inputs
-    document.getElementById('newFieldLabel').value = '';
+    // Reset add-field inputs
+    document.getElementById('newFieldLabel').value   = '';
     document.getElementById('newFieldOptions').value = '';
     document.getElementById('newFieldRequired').value = 'false';
+    document.getElementById('newFieldType').value     = 'text';
+    toggleDropdownOpts();
   }
 
+  // ── Remove a custom field from the designer ───────────────────────────────
   function removeField(id) {
     fields = fields.filter(f => f.id !== id);
     renderFields();
   }
 
+  // ── Render the current fields list ───────────────────────────────────────
   function renderFields() {
     const container = document.getElementById('fieldsList');
-    const empty = document.getElementById('emptyFieldsMsg');
+    const empty     = document.getElementById('emptyFieldsMsg');
 
     if (fields.length === 0) {
       container.innerHTML = '';
@@ -205,16 +232,33 @@
       return;
     }
 
+    const typeIcons = {
+      text:     'type',
+      number:   '123',
+      date:     'calendar3',
+      dropdown: 'chevron-down',
+      notes:    'text-paragraph',
+    };
+
     let html = '';
-    fields.forEach((f, i) => {
-      const typeIcons = { text:'type', number:'123', date:'calendar3', dropdown:'chevron-down', notes:'text-paragraph' };
+    fields.forEach((f) => {
+      const icon    = typeIcons[f.type] || 'input-cursor';
+      // Escape HTML in user-supplied strings before inserting into innerHTML
+      const safeLabel   = escHtml(f.label);
+      const safeOptions = f.options && f.options.length > 0
+        ? `<small class="text-muted me-2">[${f.options.map(escHtml).join(', ')}]</small>`
+        : '';
+      const reqBadge = f.required
+        ? '<span class="badge bg-danger me-2">required</span>'
+        : '<span class="badge bg-light text-dark border me-2">optional</span>';
+
       html += `
-      <div class="d-flex align-items-center p-2 rounded border mb-2 bg-white field-row" data-id="${f.id}">
-        <span class="badge bg-secondary me-2"><i class="bi bi-${typeIcons[f.type]||'input-cursor'}"></i> ${f.type}</span>
-        <span class="fw-semibold flex-grow-1">${f.label}</span>
-        ${f.required ? '<span class="badge bg-danger me-2">required</span>' : '<span class="badge bg-light text-dark border me-2">optional</span>'}
-        ${f.options && f.options.length > 0 ? `<small class="text-muted me-2">[${f.options.join(', ')}]</small>` : ''}
-        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="removeField('${f.id}')">
+      <div class="d-flex align-items-center p-2 rounded border mb-2 bg-white field-row" data-id="${escAttr(f.id)}">
+        <span class="badge bg-secondary me-2"><i class="bi bi-${icon}"></i> ${escHtml(f.type)}</span>
+        <span class="fw-semibold flex-grow-1">${safeLabel}</span>
+        ${reqBadge}
+        ${safeOptions}
+        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="removeField('${escAttr(f.id)}')">
           <i class="bi bi-x"></i>
         </button>
       </div>`;
@@ -222,28 +266,55 @@
     container.innerHTML = html;
   }
 
-  // Pre-submit: serialise fields into hidden input
-  document.getElementById('formBuilderForm').addEventListener('submit', function(e) {
+  // ── Tiny HTML-escape helpers ──────────────────────────────────────────────
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+  function escAttr(str) {
+    return String(str).replace(/'/g, "\\'");
+  }
+
+  // ── Pre-submit: serialise fields into hidden input ────────────────────────
+  document.getElementById('formBuilderForm').addEventListener('submit', function () {
     document.getElementById('fieldsJson').value = JSON.stringify(fields);
   });
 
+  // ── Reset the designer to a blank state ──────────────────────────────────
   function resetDesigner() {
-    fields = [];
+    fields    = [];
     editingId = null;
     document.getElementById('templateName').value = '';
-    renderFields();
-    document.getElementById('saveTemplateBtn').innerHTML = '<i class="bi bi-save"></i> Save Template';
     document.getElementById('formBuilderForm').action = '/form-builder';
+    document.getElementById('saveTemplateBtn').innerHTML =
+      '<i class="bi bi-save"></i> Save Template';
+    renderFields();
   }
 
-  function loadTemplateIntoDesigner(id, encodedName, templateFields) {
-    const name = decodeURIComponent(encodedName);
-    fields = templateFields || [];
-    document.getElementById('templateName').value = name;
+  // ── Load an existing template into the designer for editing ──────────────
+  // FIX: Accepts only the template ID. Looks up the full template data from
+  // the savedTemplates array embedded at page-load — no JSON in HTML attrs.
+  function loadTemplateIntoDesigner(id) {
+    const template = savedTemplates.find(t => t.id === id);
+    if (!template) {
+      alert('Template not found. Please refresh the page and try again.');
+      return;
+    }
+
+    editingId = id;
+    fields    = (template.fields || []).map(f => ({ ...f })); // shallow clone
+
+    document.getElementById('templateName').value = template.name || '';
+    document.getElementById('formBuilderForm').action =
+      `/form-builder/${id}?_method=PUT`;
+    document.getElementById('saveTemplateBtn').innerHTML =
+      '<i class="bi bi-save"></i> Update Template';
+
     renderFields();
-    // Switch form to PUT (update)
-    document.getElementById('formBuilderForm').action = `/form-builder/${id}?_method=PUT`;
-    document.getElementById('saveTemplateBtn').innerHTML = '<i class="bi bi-save"></i> Update Template';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 </script>

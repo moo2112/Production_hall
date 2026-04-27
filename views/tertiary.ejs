@@ -48,11 +48,16 @@
                     <td><strong><%= product.name %></strong></td>
                     <td>
                       <span class="badge bg-danger fs-6">
-                        <i class="bi bi-box-seam"></i> <%= (product.quantity || 0) + (product.damagedQuantity || 0) %> units
+                        <i class="bi bi-box-seam"></i> <%= product.quantity || 0 %> units
                       </span>
                       <% if (product.damagedQuantity && product.damagedQuantity > 0) { %>
-                        <span class="badge bg-dark fs-6 ms-1">
-                          -<%= product.damagedQuantity %>
+                        <span class="badge bg-dark fs-6 ms-1" title="Damaged">
+                          <i class="bi bi-exclamation-triangle-fill"></i> -<%= product.damagedQuantity %>
+                        </span>
+                      <% } %>
+                      <% if (product.soldQuantity && product.soldQuantity > 0) { %>
+                        <span class="badge bg-success fs-6 ms-1" title="Sold">
+                          <i class="bi bi-tag-fill"></i> <%= product.soldQuantity %> sold
                         </span>
                       <% } %>
                     </td>
@@ -71,6 +76,13 @@
                         data-components='<%- JSON.stringify(product.components||[]) %>'
                         data-details='<%- JSON.stringify(product.componentDetails||[]) %>'>
                         <i class="bi bi-plus-circle-fill"></i> Add Credit
+                      </button>
+                      <button class="btn btn-sm btn-success ms-1 sell-btn"
+                        data-id="<%= product.id %>"
+                        data-name="<%= product.name %>"
+                        data-stock="<%= product.quantity || 0 %>"
+                        title="Mark as Sold">
+                        <i class="bi bi-tag-fill"></i> Sell
                       </button>
                       <button class="btn btn-sm btn-outline-primary ms-1" onclick="editTertiaryProduct('<%= product.id %>')" title="Edit">
                         <i class="bi bi-pencil"></i>
@@ -293,6 +305,42 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL 4 — MARK AS SOLD                                                     -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="sellModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-tag-fill"></i> Mark as Sold — <span id="sellProductName"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="sellForm" method="POST">
+        <div class="modal-body">
+          <div class="alert alert-success bg-opacity-10 py-2 mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            <strong>Record Sale</strong> — enters the number of units sold and deducts them from current stock.
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Available Stock</label>
+            <p class="form-control-plaintext fw-bold text-success" id="sellAvailableStock">—</p>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Sold Quantity <span class="text-danger">*</span></label>
+            <input type="number" class="form-control" name="soldQuantity" id="sellQuantityInput"
+              step="0.01" min="0.01" required placeholder="e.g. 10">
+            <small class="text-muted">This will be deducted from current stock and recorded as sold.</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success"><i class="bi bi-tag-fill"></i> Confirm Sale</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
 const secondaryProducts = <%- JSON.stringify(secondaryProducts) %>;
 let selectedComponents = {};
@@ -413,7 +461,9 @@ function onBatchSelected(sel) {
 function onCreditStatusChange() {
   const isDamaged = document.getElementById('t_statusDamaged').checked;
   document.getElementById('t_damagedSection').style.display = isDamaged ? '' : 'none';
+
   if (isDamaged) {
+    // Rebuild checkboxes fresh each time Damaged is selected
     const html = creditComponentDetails.length > 0
       ? creditComponentDetails.map(c =>
           '<div class="form-check mb-2">' +
@@ -426,13 +476,24 @@ function onCreditStatusChange() {
         ).join('')
       : '<p class="text-muted small mb-0">No components in recipe.</p>';
     document.getElementById('t_componentCheckboxes').innerHTML = html;
+    updateRemovedComponents();
+  } else {
+    // FIX: Clear checkboxes and reset removedComponentsJson when switching away from Damaged
+    document.getElementById('t_componentCheckboxes').innerHTML =
+      '<p class="text-muted small mb-0">Select Damaged status first.</p>';
+    document.getElementById('removedComponentsJson').value = '[]';
   }
-  updateRemovedComponents();
 }
 
 function updateRemovedComponents() {
+  // FIX: Only count unchecked boxes within the VISIBLE damaged section
+  const section = document.getElementById('t_damagedSection');
+  const isDamagedVisible = section && section.style.display !== 'none';
   const unchecked = [];
-  document.querySelectorAll('.component-check:not(:checked)').forEach(cb => unchecked.push(cb.value));
+  if (isDamagedVisible) {
+    document.querySelectorAll('#t_componentCheckboxes .component-check:not(:checked)')
+      .forEach(cb => unchecked.push(cb.value));
+  }
   document.getElementById('removedComponentsJson').value = JSON.stringify(unchecked);
 }
 
@@ -441,6 +502,34 @@ document.getElementById('creditForm').addEventListener('submit', function(e) {
   if (!status) { e.preventDefault(); alert('Please select a production status.'); return; }
   const bsel = document.getElementById('creditBatchSelector');
   if (bsel && !bsel.value) { e.preventDefault(); alert('Batch Number is required to add production credit.'); return; }
+  // Safety: if Finished, always clear removedComponentsJson
+  if (status.value === 'Finished') {
+    document.getElementById('removedComponentsJson').value = '[]';
+  }
+});
+
+// ── Sell modal ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.sell-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const productId   = this.dataset.id;
+    const productName = this.dataset.name;
+    const stock       = parseFloat(this.dataset.stock) || 0;
+
+    document.getElementById('sellProductName').textContent = productName;
+    document.getElementById('sellAvailableStock').textContent = stock + ' units';
+    document.getElementById('sellQuantityInput').value = '';
+    document.getElementById('sellQuantityInput').max = stock;
+    document.getElementById('sellForm').action = '/tertiary/' + productId + '/sell';
+
+    new bootstrap.Modal(document.getElementById('sellModal')).show();
+  });
+});
+
+document.getElementById('sellForm').addEventListener('submit', function(e) {
+  const qty = parseFloat(document.getElementById('sellQuantityInput').value);
+  const max = parseFloat(document.getElementById('sellQuantityInput').max);
+  if (!qty || qty <= 0) { e.preventDefault(); alert('Please enter a valid quantity.'); return; }
+  if (qty > max) { e.preventDefault(); alert('Sold quantity cannot exceed available stock (' + max + ' units).'); return; }
 });
 
 // ── Edit modal handled by main.js ─────────────────────────────────────────────
