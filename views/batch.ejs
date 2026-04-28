@@ -50,21 +50,27 @@
                   <tr>
                     <td><%= index + 1 %></td>
                     <td>
-                      <span class="badge fs-6 fw-semibold" style="background:#7c3aed">
+                      <button type="button" class="btn btn-sm text-white fw-semibold" style="background:#7c3aed" onclick="viewBatchDetails('<%= batch.id %>')" title="View all products related to this batch">
                         <i class="bi bi-tag-fill me-1"></i><%= batch.batchNumber %>
-                      </span>
+                      </button>
                     </td>
                     <td><strong><%= batch.itemName %></strong></td>
                     <td>
                       <% const typeColors = {Primary:'success',Secondary:'warning',Tertiary:'danger'}; %>
                       <span class="badge bg-<%= typeColors[batch.itemType] || 'secondary' %>"><%= batch.itemType || '-' %></span>
                     </td>
-                    <td><%= batch.formTemplateName || '<span class="text-muted">-</span>' %></td>
+                    <td>
+                      <% if (batch.formTemplateName) { %>
+                        <%= batch.formTemplateName %>
+                      <% } else { %>
+                        <span class="text-muted">-</span>
+                      <% } %>
+                    </td>
                     <td class="text-muted small">
                       <%= batch.createdAt && batch.createdAt.toDate ? batch.createdAt.toDate().toLocaleString() : new Date(batch.createdAt).toLocaleString() %>
                     </td>
                     <td class="text-end">
-                      <button class="btn btn-sm btn-outline-info" onclick="viewBatchDetails(<%- JSON.stringify(batch) %>)" title="View Details">
+                      <button class="btn btn-sm btn-outline-info" onclick="viewBatchDetails('<%= batch.id %>')" title="View Details">
                         <i class="bi bi-eye"></i>
                       </button>
                       <form action="/batch/<%= batch.id %>?_method=DELETE" method="POST" style="display:inline">
@@ -163,13 +169,15 @@
 
 <!-- ── Batch Detail Modal ────────────────────────────────────────────────────── -->
 <div class="modal fade" id="batchDetailModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header text-white" style="background:#7c3aed">
-        <h5 class="modal-title"><i class="bi bi-eye"></i> Batch Details</h5>
+        <h5 class="modal-title"><i class="bi bi-diagram-3"></i> Batch Details & Product Traceability</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body" id="batchDetailBody"></div>
+      <div class="modal-body" id="batchDetailBody">
+        <div class="text-center text-muted py-4">Loading batch details…</div>
+      </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
@@ -178,6 +186,42 @@
 </div>
 
 <script>
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function formatBatchDate(value) {
+    if (!value) return '-';
+    if (value._seconds) return new Date(value._seconds * 1000).toLocaleString();
+    if (value.seconds) return new Date(value.seconds * 1000).toLocaleString();
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString();
+  }
+
+  function formatUnits(value) {
+    const number = parseFloat(value || 0);
+    return Number.isInteger(number) ? String(number) : number.toFixed(2).replace(/\.00$/, '');
+  }
+
+  function fieldInputName(fieldId) {
+    const rawId = String(fieldId || '').trim();
+    if (!rawId) return '';
+    return rawId.startsWith('field_') ? rawId : `field_${rawId}`;
+  }
+
+  function humanizeFieldKey(key) {
+    return String(key || '')
+      .replace(/^field_/, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, char => char.toUpperCase())
+      .trim() || 'Custom Field';
+  }
+
   function syncItemName(sel) {
     const opt = sel.options[sel.selectedIndex];
     document.getElementById('itemName').value = opt.dataset.name || '';
@@ -203,19 +247,20 @@
     fields.forEach(f => {
       const req = f.required ? 'required' : '';
       const reqMark = f.required ? '<span class="text-danger">*</span>' : '';
-      html += `<div class="col-md-6"><label class="form-label fw-semibold">${f.label} ${reqMark}</label>`;
+      const inputName = fieldInputName(f.id);
+      html += `<div class="col-md-6"><label class="form-label fw-semibold">${escapeHtml(f.label)} ${reqMark}</label>`;
       if (f.type === 'text' || f.type === 'notes') {
-        html += `<input type="text" class="form-control" name="field_${f.id}" placeholder="${f.label}" ${req}>`;
+        html += `<input type="text" class="form-control" name="${escapeHtml(inputName)}" placeholder="${escapeHtml(f.label)}" ${req}>`;
       } else if (f.type === 'number') {
-        html += `<input type="number" class="form-control" name="field_${f.id}" step="0.01" ${req}>`;
+        html += `<input type="number" class="form-control" name="${escapeHtml(inputName)}" step="0.01" ${req}>`;
       } else if (f.type === 'date') {
-        html += `<input type="date" class="form-control" name="field_${f.id}" ${req}>`;
+        html += `<input type="date" class="form-control" name="${escapeHtml(inputName)}" ${req}>`;
       } else if (f.type === 'dropdown' && f.options && f.options.length > 0) {
-        html += `<select class="form-select" name="field_${f.id}" ${req}><option value="">— Select —</option>`;
-        f.options.forEach(o => { html += `<option value="${o}">${o}</option>`; });
+        html += `<select class="form-select" name="${escapeHtml(inputName)}" ${req}><option value="">— Select —</option>`;
+        f.options.forEach(o => { html += `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`; });
         html += `</select>`;
       } else {
-        html += `<input type="text" class="form-control" name="field_${f.id}" ${req}>`;
+        html += `<input type="text" class="form-control" name="${escapeHtml(inputName)}" ${req}>`;
       }
       html += `</div>`;
     });
@@ -223,21 +268,84 @@
     container.innerHTML = html;
   }
 
-  function viewBatchDetails(batch) {
-    let html = `<table class="table table-sm"><tbody>`;
-    html += `<tr><th>Batch Number</th><td><span class="badge fs-6" style="background:#7c3aed">${batch.batchNumber}</span></td></tr>`;
-    html += `<tr><th>Item Name</th><td><strong>${batch.itemName}</strong></td></tr>`;
-    html += `<tr><th>Item Type</th><td>${batch.itemType || '-'}</td></tr>`;
-    html += `<tr><th>Form Template</th><td>${batch.formTemplateName || '-'}</td></tr>`;
-    if (batch.fieldValues && Object.keys(batch.fieldValues).length > 0) {
-      html += `<tr><th colspan="2" class="bg-light">Custom Fields</th></tr>`;
-      for (const [k, v] of Object.entries(batch.fieldValues)) {
-        html += `<tr><th class="ps-3 text-muted">${k.replace('field_','')}</th><td>${v}</td></tr>`;
-      }
+  async function viewBatchDetails(batchId) {
+    const modalElement = document.getElementById('batchDetailModal');
+    const body = document.getElementById('batchDetailBody');
+    body.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Loading batch details…</div>';
+    const modal = new bootstrap.Modal(modalElement);
+    modal.show();
+
+    try {
+      const response = await fetch('/batch/api/' + batchId + '/details');
+      const payload = await response.json();
+      if (!response.ok || payload.error) throw new Error(payload.error || 'Failed to load batch details');
+      renderBatchDetails(payload);
+    } catch (error) {
+      body.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle me-1"></i>' + escapeHtml(error.message) + '</div>';
     }
-    html += `</tbody></table>`;
+  }
+
+  function renderBatchDetails(payload) {
+    const batch = payload.batch || {};
+    const directProducts = payload.directProducts || [];
+    const consumedByProducts = payload.consumedByProducts || [];
+    const customFields = payload.customFields || [];
+    const fieldValues = batch.fieldValues || {};
+
+    let html = `
+      <div class="batch-detail-summary mb-4">
+        <div class="row g-3">
+          <div class="col-md-3"><div class="trace-card"><span class="trace-label">Batch Number</span><strong>${escapeHtml(batch.batchNumber || '-')}</strong></div></div>
+          <div class="col-md-3"><div class="trace-card"><span class="trace-label">Linked Item</span><strong>${escapeHtml(batch.itemName || '-')}</strong></div></div>
+          <div class="col-md-3"><div class="trace-card"><span class="trace-label">Item Type</span><strong>${escapeHtml(batch.itemType || '-')}</strong></div></div>
+          <div class="col-md-3"><div class="trace-card"><span class="trace-label">Recorded</span><strong>${escapeHtml(formatBatchDate(batch.createdAt))}</strong></div></div>
+        </div>
+      </div>`;
+
+    if (customFields.length > 0) {
+      html += '<div class="card border-0 shadow-sm mb-4"><div class="card-header bg-light fw-semibold"><i class="bi bi-ui-checks me-1"></i>Custom Fields';
+      if (payload.templateName) html += ` <span class="badge bg-secondary ms-2">${escapeHtml(payload.templateName)}</span>`;
+      html += '</div><div class="card-body"><div class="row g-2">';
+      customFields.forEach((field) => {
+        html += `<div class="col-md-6"><div class="small text-muted">${escapeHtml(field.label || humanizeFieldKey(field.key))}</div><div class="fw-semibold">${escapeHtml(field.value || '-')}</div></div>`;
+      });
+      html += '</div></div></div>';
+    } else if (Object.keys(fieldValues).length > 0) {
+      html += '<div class="card border-0 shadow-sm mb-4"><div class="card-header bg-light fw-semibold"><i class="bi bi-ui-checks me-1"></i>Custom Fields</div><div class="card-body"><div class="row g-2">';
+      Object.entries(fieldValues).forEach(([key, value]) => {
+        html += `<div class="col-md-6"><div class="small text-muted">${escapeHtml(humanizeFieldKey(key))}</div><div class="fw-semibold">${escapeHtml(value || '-')}</div></div>`;
+      });
+      html += '</div></div></div>';
+    }
+
+    html += '<div class="row g-3">';
+    html += '<div class="col-lg-6"><div class="card h-100 border-0 shadow-sm"><div class="card-header bg-light fw-semibold"><i class="bi bi-box-seam me-1"></i>Products with available stock in this batch</div><div class="card-body">';
+    if (directProducts.length === 0) {
+      html += '<div class="text-muted text-center py-4"><i class="bi bi-inbox display-6 opacity-25"></i><p class="mb-0 mt-2">No secondary or tertiary stock has been credited to this batch yet.</p></div>';
+    } else {
+      html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Tier</th><th>Product</th><th>Units</th><th>Relationship</th></tr></thead><tbody>';
+      directProducts.forEach(item => {
+        const badgeClass = item.tier === 'Tertiary' ? 'bg-danger' : 'bg-warning text-dark';
+        html += `<tr><td><span class="badge ${badgeClass}">${escapeHtml(item.tier)}</span></td><td class="fw-semibold">${escapeHtml(item.productName)}</td><td>${formatUnits(item.units)}</td><td class="small text-muted">${escapeHtml(item.relationship)}</td></tr>`;
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div></div></div>';
+
+    html += '<div class="col-lg-6"><div class="card h-100 border-0 shadow-sm"><div class="card-header bg-light fw-semibold"><i class="bi bi-arrow-left-right me-1"></i>Products that consumed this batch</div><div class="card-body">';
+    if (consumedByProducts.length === 0) {
+      html += '<div class="text-muted text-center py-4"><i class="bi bi-diagram-3 display-6 opacity-25"></i><p class="mb-0 mt-2">No tertiary product has consumed this batch as a secondary input yet.</p></div>';
+    } else {
+      html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Tertiary Product</th><th>Tertiary Batch</th><th>Secondary Input</th><th>Units Used</th></tr></thead><tbody>';
+      consumedByProducts.forEach(item => {
+        html += `<tr><td class="fw-semibold">${escapeHtml(item.productName)}</td><td><span class="badge bg-danger">${escapeHtml(item.tertiaryBatchNumber || '-')}</span></td><td>${escapeHtml(item.sourceProductName || '-')}</td><td>${formatUnits(item.units)}</td></tr>`;
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div></div></div>';
+    html += '</div>';
+
     document.getElementById('batchDetailBody').innerHTML = html;
-    new bootstrap.Modal(document.getElementById('batchDetailModal')).show();
   }
 </script>
 

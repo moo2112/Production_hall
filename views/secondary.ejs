@@ -47,14 +47,24 @@
                     <td><%= index + 1 %></td>
                     <td><strong><%= product.name %></strong></td>
                     <td>
-                      <span class="badge bg-warning text-dark fs-6">
-                        <i class="bi bi-box-seam"></i> <%= product.quantity || 0 %> units
-                      </span>
+                      <button type="button"
+                        class="btn btn-sm p-0 border-0 bg-transparent batch-stock-button"
+                        data-product-name="<%= product.name %>"
+                        data-tier="Secondary"
+                        data-total="<%= product.quantity || 0 %>"
+                        data-batch-stock="<%- encodeURIComponent(JSON.stringify(product.batchStock || [])) %>"
+                        onclick="openDistributionFromButton(this)"
+                        title="Click to view batch distribution">
+                        <span class="badge bg-warning text-dark fs-6">
+                          <i class="bi bi-box-seam"></i> <%= product.quantity || 0 %> units
+                        </span>
+                      </button>
                       <% if (product.damagedQuantity && product.damagedQuantity > 0) { %>
                         <span class="badge bg-danger fs-6 ms-1" title="Total damaged">
                           <i class="bi bi-exclamation-triangle-fill"></i> <%= product.damagedQuantity %> dmg
                         </span>
                       <% } %>
+                      <div class="small text-muted mt-1"><i class="bi bi-info-circle"></i> Click stock to see batches</div>
                     </td>
                     <td class="text-muted small"><%= product.description || '-' %></td>
                     <td>
@@ -68,8 +78,8 @@
                       <button class="btn btn-sm btn-warning credit-btn"
                         data-id="<%= product.id %>"
                         data-name="<%= product.name %>"
-                        data-components='<%- JSON.stringify(product.components||[]) %>'
-                        data-details='<%- JSON.stringify(product.componentDetails||[]) %>'>
+                        data-components="<%- encodeURIComponent(JSON.stringify(product.components||[])) %>"
+                        data-details="<%- encodeURIComponent(JSON.stringify(product.componentDetails||[])) %>">
                         <i class="bi bi-plus-circle-fill"></i> Add Credit
                       </button>
                       <button class="btn btn-sm btn-outline-primary ms-1" onclick="editSecondaryProduct('<%= product.id %>')" title="Edit">
@@ -172,7 +182,7 @@
         <div class="modal-body">
           <div class="alert alert-warning py-2 mb-3">
             <i class="bi bi-info-circle me-1"></i>
-            <strong>Production Credit</strong> — increases secondary stock and deducts primary components used.
+            <strong>Production Credit</strong> — increases secondary stock, deducts primary components, and records the produced units under the selected batch.
           </div>
 
           <!-- Batch selector -->
@@ -185,7 +195,7 @@
                 <select class="form-select" name="batchId" id="creditBatchSelector" required onchange="onBatchSelected(this)">
                   <option value="">— Select batch number —</option>
                   <% batches.forEach(b => { %>
-                    <option value="<%= b.id %>" data-item="<%= b.itemName %>"><%= b.batchNumber %> — <%= b.itemName %></option>
+                    <option value="<%= b.id %>" data-item="<%= b.itemName %>" data-type="<%= b.itemType %>"><%= b.batchNumber %> — <%= b.itemName %> (<%= b.itemType || 'Product' %>)</option>
                   <% }); %>
                 </select>
                 <div class="mt-3" id="batchItemDisplay" style="display:none">
@@ -259,6 +269,9 @@
         <input type="hidden" name="_method" value="PUT">
         <input type="hidden" name="componentsJson" id="editComponentsJson">
         <div class="modal-body">
+          <div class="alert alert-info py-2">
+            <i class="bi bi-info-circle me-1"></i> If stock is adjusted manually, the system keeps batch distribution aligned by creating or reducing a <strong>Manual / Unassigned</strong> entry when needed.
+          </div>
           <div class="row g-3 mb-3">
             <div class="col-md-6">
               <label class="form-label fw-semibold">Product Name <span class="text-danger">*</span></label>
@@ -294,10 +307,80 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL 4 — BATCH DISTRIBUTION                                               -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="batchDistributionModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="bi bi-boxes"></i> Batch Distribution — <span id="distributionProductName"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="distributionBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const primaryProducts = <%- JSON.stringify(primaryProducts) %>;
 let selectedComponents = {};
 let creditComponentDetails = [];
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function formatUnits(value) {
+  const number = parseFloat(value || 0);
+  return Number.isInteger(number) ? String(number) : number.toFixed(2).replace(/\.00$/, '');
+}
+
+function getDecodedJson(value, fallback) {
+  try { return JSON.parse(decodeURIComponent(value || '')); } catch(e) { return fallback; }
+}
+
+function openDistributionFromButton(button) {
+  const batchStock = getDecodedJson(button.dataset.batchStock, []);
+  renderBatchDistribution(button.dataset.productName || 'Product', button.dataset.tier || 'Secondary', parseFloat(button.dataset.total || 0), batchStock);
+}
+
+function renderBatchDistribution(productName, tier, totalUnits, batchStock) {
+  const body = document.getElementById('distributionBody');
+  document.getElementById('distributionProductName').textContent = productName;
+
+  const cleanStock = (batchStock || []).filter(b => parseFloat(b.quantity || 0) > 0);
+  const batchTotal = cleanStock.reduce((sum, b) => sum + parseFloat(b.quantity || 0), 0);
+
+  let html = '<div class="trace-card mb-3"><span class="trace-label">Product</span><strong>' + escapeHtml(productName) + '</strong><div class="mt-2"><span class="badge bg-warning text-dark me-1">' + escapeHtml(tier) + '</span><span class="badge bg-secondary">Total stock: ' + formatUnits(totalUnits) + ' units</span></div></div>';
+
+  if (cleanStock.length === 0) {
+    html += '<div class="alert alert-light border mb-0"><i class="bi bi-info-circle me-1"></i>No batch-level stock is currently recorded for this product. New production credits will appear here automatically.</div>';
+  } else {
+    html += '<div class="table-responsive"><table class="table align-middle"><thead class="table-light"><tr><th>Batch Number</th><th>Units</th><th>Share</th></tr></thead><tbody>';
+    cleanStock.forEach(batch => {
+      const qty = parseFloat(batch.quantity || 0);
+      const pct = totalUnits > 0 ? Math.round((qty / totalUnits) * 10000) / 100 : 0;
+      html += '<tr><td><span class="badge bg-dark-subtle text-dark border"><i class="bi bi-tag-fill me-1"></i>' + escapeHtml(batch.batchNumber || 'Unassigned') + '</span></td><td class="fw-semibold">' + formatUnits(qty) + '</td><td><div class="progress" style="height:8px"><div class="progress-bar bg-warning" style="width:' + Math.min(100, pct) + '%"></div></div><small class="text-muted">' + pct + '%</small></td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    if (Math.abs(batchTotal - totalUnits) > 0.000001) {
+      html += '<div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>Batch total is ' + formatUnits(batchTotal) + ' units while product stock is ' + formatUnits(totalUnits) + ' units. Manual edits may have created an unassigned adjustment.</div>';
+    }
+  }
+
+  body.innerHTML = html;
+  new bootstrap.Modal(document.getElementById('batchDistributionModal')).show();
+}
 
 // ── Encode modal: primary component picker ────────────────────────────────────
 document.querySelectorAll('.add-btn').forEach(btn => {
@@ -365,7 +448,7 @@ function updateSelectedDisplay() {
       keys.map(k => {
         const c = selectedComponents[k];
         const over = c.quantity > c.stock;
-        return '<span class="badge ' + (over ? 'bg-danger' : 'bg-success') + ' text-white">' + c.name + ' × ' + c.quantity + (over ? ' ⚠️' : '') + '</span>';
+        return '<span class="badge ' + (over ? 'bg-danger' : 'bg-success') + ' text-white">' + escapeHtml(c.name) + ' × ' + c.quantity + (over ? ' ⚠️' : '') + '</span>';
       }).join('') + '</div>';
   }
 }
@@ -381,9 +464,8 @@ document.querySelectorAll('.credit-btn').forEach(btn => {
   btn.addEventListener('click', function() {
     const productId   = this.dataset.id;
     const productName = this.dataset.name;
-    let components = [], details = [];
-    try { components = JSON.parse(this.dataset.components || '[]'); } catch(e) {}
-    try { details    = JSON.parse(this.dataset.details    || '[]'); } catch(e) {}
+    const components = getDecodedJson(this.dataset.components, []);
+    const details    = getDecodedJson(this.dataset.details, []);
     openCreditModal(productId, productName, components, details);
   });
 });
@@ -416,13 +498,12 @@ function onCreditStatusChange() {
   document.getElementById('s_damagedSection').style.display = isDamaged ? '' : 'none';
 
   if (isDamaged) {
-    // Rebuild checkboxes fresh every time Damaged is selected
     const html = creditComponentDetails.length > 0
       ? creditComponentDetails.map(c =>
           '<div class="form-check mb-2">' +
             '<input class="form-check-input component-check" type="checkbox" id="cc_' + c.id + '" value="' + c.id + '" checked onchange="updateRemovedComponents()">' +
             '<label class="form-check-label" for="cc_' + c.id + '">' +
-              '<strong>' + c.name + '</strong>' +
+              '<strong>' + escapeHtml(c.name) + '</strong>' +
               '<span class="badge bg-success ms-1">× ' + c.usedQuantity + ' per unit</span>' +
             '</label>' +
           '</div>'
@@ -431,8 +512,6 @@ function onCreditStatusChange() {
     document.getElementById('s_componentCheckboxes').innerHTML = html;
     updateRemovedComponents();
   } else {
-    // FIX: When switching away from Damaged, immediately clear the removed list
-    // and wipe the checkbox section so no stale unchecked boxes remain in the DOM.
     document.getElementById('s_componentCheckboxes').innerHTML =
       '<p class="text-muted small mb-0">Select Damaged status first.</p>';
     document.getElementById('removedComponentsJson').value = '[]';
@@ -440,9 +519,6 @@ function onCreditStatusChange() {
 }
 
 function updateRemovedComponents() {
-  // FIX: Only collect unchecked boxes when the Damaged section is actually visible.
-  // Previously, hidden unchecked checkboxes were still collected, causing stale
-  // removedComponentsJson that incorrectly listed primary components as missing.
   const section = document.getElementById('s_damagedSection');
   const isDamagedVisible = section && section.style.display !== 'none';
   const unchecked = [];
@@ -459,15 +535,12 @@ document.getElementById('creditForm').addEventListener('submit', function(e) {
   const bsel = document.getElementById('creditBatchSelector');
   if (bsel && !bsel.value) { e.preventDefault(); alert('Batch Number is required to add production credit.'); return; }
 
-  // Safety: if Finished is selected, always clear removedComponentsJson so all
-  // primary components are deducted correctly regardless of any prior Damaged state.
   if (status.value === 'Finished') {
     document.getElementById('removedComponentsJson').value = '[]';
   }
 });
 
 // ── Edit modal handled by main.js ─────────────────────────────────────────────
-
 </script>
 
 <%- include('partials/footer') %>

@@ -47,9 +47,18 @@
                     <td><%= index + 1 %></td>
                     <td><strong><%= product.name %></strong></td>
                     <td>
-                      <span class="badge bg-danger fs-6">
-                        <i class="bi bi-box-seam"></i> <%= product.quantity || 0 %> units
-                      </span>
+                      <button type="button"
+                        class="btn btn-sm p-0 border-0 bg-transparent batch-stock-button"
+                        data-product-name="<%= product.name %>"
+                        data-tier="Tertiary"
+                        data-total="<%= product.quantity || 0 %>"
+                        data-batch-stock="<%- encodeURIComponent(JSON.stringify(product.batchStock || [])) %>"
+                        onclick="openDistributionFromButton(this)"
+                        title="Click to view batch distribution">
+                        <span class="badge bg-danger fs-6">
+                          <i class="bi bi-box-seam"></i> <%= product.quantity || 0 %> units
+                        </span>
+                      </button>
                       <% if (product.damagedQuantity && product.damagedQuantity > 0) { %>
                         <span class="badge bg-dark fs-6 ms-1" title="Damaged">
                           <i class="bi bi-exclamation-triangle-fill"></i> -<%= product.damagedQuantity %>
@@ -60,6 +69,7 @@
                           <i class="bi bi-tag-fill"></i> <%= product.soldQuantity %> sold
                         </span>
                       <% } %>
+                      <div class="small text-muted mt-1"><i class="bi bi-info-circle"></i> Click stock to see batches</div>
                     </td>
                     <td class="text-muted small"><%= product.description || '-' %></td>
                     <td>
@@ -73,14 +83,15 @@
                       <button class="btn btn-sm btn-danger credit-btn"
                         data-id="<%= product.id %>"
                         data-name="<%= product.name %>"
-                        data-components='<%- JSON.stringify(product.components||[]) %>'
-                        data-details='<%- JSON.stringify(product.componentDetails||[]) %>'>
+                        data-components="<%- encodeURIComponent(JSON.stringify(product.components||[])) %>"
+                        data-details="<%- encodeURIComponent(JSON.stringify(product.componentDetails||[])) %>">
                         <i class="bi bi-plus-circle-fill"></i> Add Credit
                       </button>
                       <button class="btn btn-sm btn-success ms-1 sell-btn"
                         data-id="<%= product.id %>"
                         data-name="<%= product.name %>"
                         data-stock="<%= product.quantity || 0 %>"
+                        data-batch-stock="<%- encodeURIComponent(JSON.stringify(product.batchStock || [])) %>"
                         title="Mark as Sold">
                         <i class="bi bi-tag-fill"></i> Sell
                       </button>
@@ -168,10 +179,10 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL 2 — ADD CREDIT (requires batch, deducts secondaries)                -->
+<!-- MODAL 2 — ADD CREDIT (requires batch, deducts selected secondary batches)  -->
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <div class="modal fade" id="creditModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header bg-danger text-white">
         <h5 class="modal-title"><i class="bi bi-plus-circle-fill"></i> Add Production Credit — <span id="creditProductName"></span></h5>
@@ -179,24 +190,25 @@
       </div>
       <form id="creditForm" method="POST">
         <input type="hidden" name="removedComponentsJson" id="removedComponentsJson" value="[]">
+        <input type="hidden" name="componentBatchSelectionsJson" id="componentBatchSelectionsJson" value="[]">
         <input type="hidden" name="batchItemName" id="batchItemName">
         <div class="modal-body">
           <div class="alert alert-danger bg-opacity-10 py-2 mb-3">
             <i class="bi bi-info-circle me-1"></i>
-            <strong>Production Credit</strong> — increases tertiary stock and deducts secondary components used.
+            <strong>Production Credit</strong> — increases tertiary stock, deducts selected secondary batches, and records traceability from secondary batches to the new tertiary batch.
           </div>
 
           <!-- Batch -->
           <div class="card mb-3 border-danger">
-            <div class="card-header bg-danger text-white py-2"><small><i class="bi bi-tag-fill me-1"></i> Step 1 — Batch Number <span class="fw-bold">(required)</span></small></div>
+            <div class="card-header bg-danger text-white py-2"><small><i class="bi bi-tag-fill me-1"></i> Step 1 — Tertiary Batch Number <span class="fw-bold">(required)</span></small></div>
             <div class="card-body">
               <% if (batches.length === 0) { %>
                 <div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i> No batches available. <a href="/batch" target="_blank" class="alert-link">Create a batch first</a>.</div>
               <% } else { %>
                 <select class="form-select" name="batchId" id="creditBatchSelector" required onchange="onBatchSelected(this)">
-                  <option value="">— Select batch number —</option>
+                  <option value="">— Select tertiary batch number —</option>
                   <% batches.forEach(b => { %>
-                    <option value="<%= b.id %>" data-item="<%= b.itemName %>"><%= b.batchNumber %> — <%= b.itemName %></option>
+                    <option value="<%= b.id %>" data-item="<%= b.itemName %>" data-type="<%= b.itemType %>"><%= b.batchNumber %> — <%= b.itemName %> (<%= b.itemType || 'Product' %>)</option>
                   <% }); %>
                 </select>
                 <div class="mt-3" id="batchItemDisplay" style="display:none">
@@ -209,12 +221,12 @@
 
           <!-- Qty + Status -->
           <div class="card mb-3 border-secondary">
-            <div class="card-header bg-secondary text-white py-2"><small><i class="bi bi-123 me-1"></i> Step 2 — Quantity & Status</small></div>
+            <div class="card-header bg-secondary text-white py-2"><small><i class="bi bi-123 me-1"></i> Step 2 — Quantity, Status & Secondary Batch Allocation</small></div>
             <div class="card-body">
               <div class="row g-3">
                 <div class="col-md-5">
                   <label class="form-label fw-semibold">Quantity Produced <span class="text-danger">*</span></label>
-                  <input type="number" class="form-control" name="amount" step="0.01" min="0.01" required placeholder="e.g. 20">
+                  <input type="number" class="form-control" name="amount" id="t_creditAmountInput" step="0.01" min="0.01" required placeholder="e.g. 20" oninput="renderTertiaryBatchAllocation()">
                 </div>
                 <div class="col-md-7">
                   <label class="form-label fw-semibold">Production Status <span class="text-danger">*</span></label>
@@ -235,6 +247,18 @@
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <div id="t_batchAllocationPanel" class="batch-selection-panel mt-3" style="display:none">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                  <div>
+                    <h6 class="mb-0"><i class="bi bi-diagram-3 me-1"></i>Select Secondary Product Batches</h6>
+                    <small class="text-muted">The sum of all selected secondary product batch units must exactly equal the tertiary credit amount.</small>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline-danger" onclick="renderTertiaryBatchAllocation()"><i class="bi bi-arrow-clockwise"></i> Auto-fill</button>
+                </div>
+                <div id="t_batchAllocationBody"></div>
+                <div id="t_batchAllocationErrors" class="mt-2"></div>
               </div>
             </div>
           </div>
@@ -270,6 +294,9 @@
         <input type="hidden" name="_method" value="PUT">
         <input type="hidden" name="componentsJson" id="editComponentsJson">
         <div class="modal-body">
+          <div class="alert alert-info py-2">
+            <i class="bi bi-info-circle me-1"></i> If stock is adjusted manually, the system keeps batch distribution aligned by creating or reducing a <strong>Manual / Unassigned</strong> entry when needed.
+          </div>
           <div class="row g-3 mb-3">
             <div class="col-md-6">
               <label class="form-label fw-semibold">Product Name <span class="text-danger">*</span></label>
@@ -319,17 +346,24 @@
         <div class="modal-body">
           <div class="alert alert-success bg-opacity-10 py-2 mb-3">
             <i class="bi bi-info-circle me-1"></i>
-            <strong>Record Sale</strong> — enters the number of units sold and deducts them from current stock.
+            <strong>Record Sale</strong> — select the exact tertiary batch number to sell from. Units will be deducted from that batch only.
           </div>
           <div class="mb-3">
-            <label class="form-label fw-semibold">Available Stock</label>
+            <label class="form-label fw-semibold">Total Available Stock</label>
             <p class="form-control-plaintext fw-bold text-success" id="sellAvailableStock">—</p>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Batch Number <span class="text-danger">*</span></label>
+            <select class="form-select" name="batchId" id="sellBatchSelector" required onchange="updateSellBatchAvailability()">
+              <option value="">— Select batch —</option>
+            </select>
+            <small class="text-muted" id="sellBatchAvailableText">Choose a batch to see available units.</small>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Sold Quantity <span class="text-danger">*</span></label>
             <input type="number" class="form-control" name="soldQuantity" id="sellQuantityInput"
               step="0.01" min="0.01" required placeholder="e.g. 10">
-            <small class="text-muted">This will be deducted from current stock and recorded as sold.</small>
+            <small class="text-muted">This will be deducted from the selected batch only.</small>
           </div>
         </div>
         <div class="modal-footer">
@@ -341,10 +375,84 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL 5 — BATCH DISTRIBUTION                                               -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="batchDistributionModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title"><i class="bi bi-boxes"></i> Batch Distribution — <span id="distributionProductName"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="distributionBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const secondaryProducts = <%- JSON.stringify(secondaryProducts) %>;
 let selectedComponents = {};
 let creditComponentDetails = [];
+let currentSellBatchStock = [];
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function formatUnits(value) {
+  const number = parseFloat(value || 0);
+  return Number.isInteger(number) ? String(number) : number.toFixed(2).replace(/\.00$/, '');
+}
+
+function getDecodedJson(value, fallback) {
+  try { return JSON.parse(decodeURIComponent(value || '')); } catch(e) { return fallback; }
+}
+
+function openDistributionFromButton(button) {
+  const batchStock = getDecodedJson(button.dataset.batchStock, []);
+  renderBatchDistribution(button.dataset.productName || 'Product', button.dataset.tier || 'Tertiary', parseFloat(button.dataset.total || 0), batchStock);
+}
+
+function renderBatchDistribution(productName, tier, totalUnits, batchStock) {
+  const body = document.getElementById('distributionBody');
+  document.getElementById('distributionProductName').textContent = productName;
+
+  const cleanStock = (batchStock || []).filter(b => parseFloat(b.quantity || 0) > 0);
+  const batchTotal = cleanStock.reduce((sum, b) => sum + parseFloat(b.quantity || 0), 0);
+
+  let html = '<div class="trace-card mb-3"><span class="trace-label">Product</span><strong>' + escapeHtml(productName) + '</strong><div class="mt-2"><span class="badge bg-danger me-1">' + escapeHtml(tier) + '</span><span class="badge bg-secondary">Total stock: ' + formatUnits(totalUnits) + ' units</span></div></div>';
+
+  if (cleanStock.length === 0) {
+    html += '<div class="alert alert-light border mb-0"><i class="bi bi-info-circle me-1"></i>No batch-level stock is currently recorded for this product. New production credits will appear here automatically.</div>';
+  } else {
+    html += '<div class="table-responsive"><table class="table align-middle"><thead class="table-light"><tr><th>Batch Number</th><th>Units</th><th>Secondary Sources</th><th>Share</th></tr></thead><tbody>';
+    cleanStock.forEach(batch => {
+      const qty = parseFloat(batch.quantity || 0);
+      const pct = totalUnits > 0 ? Math.round((qty / totalUnits) * 10000) / 100 : 0;
+      const sources = (batch.sourceBatches || []).length > 0
+        ? '<ul class="small mb-0 ps-3">' + batch.sourceBatches.map(source => '<li>' + escapeHtml(source.secondaryProductName || source.productName || 'Secondary') + ' / ' + escapeHtml(source.batchNumber || '-') + ': <strong>' + formatUnits(source.quantity) + '</strong></li>').join('') + '</ul>'
+        : '<span class="text-muted small">No source batch recorded</span>';
+      html += '<tr><td><span class="badge bg-dark-subtle text-dark border"><i class="bi bi-tag-fill me-1"></i>' + escapeHtml(batch.batchNumber || 'Unassigned') + '</span></td><td class="fw-semibold">' + formatUnits(qty) + '</td><td>' + sources + '</td><td><div class="progress" style="height:8px"><div class="progress-bar bg-danger" style="width:' + Math.min(100, pct) + '%"></div></div><small class="text-muted">' + pct + '%</small></td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    if (Math.abs(batchTotal - totalUnits) > 0.000001) {
+      html += '<div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>Batch total is ' + formatUnits(batchTotal) + ' units while product stock is ' + formatUnits(totalUnits) + ' units. Manual edits may have created an unassigned adjustment.</div>';
+    }
+  }
+
+  body.innerHTML = html;
+  new bootstrap.Modal(document.getElementById('batchDistributionModal')).show();
+}
 
 // ── Encode modal: secondary component picker ──────────────────────────────────
 document.querySelectorAll('.add-btn').forEach(btn => {
@@ -412,7 +520,7 @@ function updateSelectedDisplay() {
       keys.map(k => {
         const c = selectedComponents[k];
         const over = c.quantity > c.stock;
-        return '<span class="badge ' + (over ? 'bg-danger' : 'bg-warning text-dark') + '">' + c.name + ' × ' + c.quantity + (over ? ' ⚠️' : '') + '</span>';
+        return '<span class="badge ' + (over ? 'bg-danger' : 'bg-warning text-dark') + '">' + escapeHtml(c.name) + ' × ' + c.quantity + (over ? ' ⚠️' : '') + '</span>';
       }).join('') + '</div>';
   }
 }
@@ -428,9 +536,8 @@ document.querySelectorAll('.credit-btn').forEach(btn => {
   btn.addEventListener('click', function() {
     const productId   = this.dataset.id;
     const productName = this.dataset.name;
-    let components = [], details = [];
-    try { components = JSON.parse(this.dataset.components || '[]'); } catch(e) {}
-    try { details    = JSON.parse(this.dataset.details    || '[]'); } catch(e) {}
+    const components  = getDecodedJson(this.dataset.components, []);
+    const details     = getDecodedJson(this.dataset.details, []);
     openCreditModal(productId, productName, components, details);
   });
 });
@@ -440,10 +547,16 @@ function openCreditModal(productId, productName, components, componentDetails) {
   document.getElementById('creditProductName').textContent = productName;
   document.getElementById('creditForm').action = '/tertiary/' + productId + '/produce';
   document.getElementById('removedComponentsJson').value = '[]';
+  document.getElementById('componentBatchSelectionsJson').value = '[]';
   document.getElementById('batchItemName').value = '';
   document.getElementById('batchItemNameDisplay').value = '';
   document.getElementById('batchItemDisplay').style.display = 'none';
   document.getElementById('t_damagedSection').style.display = 'none';
+  document.getElementById('t_componentCheckboxes').innerHTML = '<p class="text-muted small mb-0">Select Damaged status first.</p>';
+  document.getElementById('t_creditAmountInput').value = '';
+  document.getElementById('t_batchAllocationPanel').style.display = 'none';
+  document.getElementById('t_batchAllocationBody').innerHTML = '';
+  document.getElementById('t_batchAllocationErrors').innerHTML = '';
   document.querySelectorAll('input[name="productionStatus"]').forEach(r => r.checked = false);
   const bsel = document.getElementById('creditBatchSelector');
   if (bsel) bsel.value = '';
@@ -463,13 +576,12 @@ function onCreditStatusChange() {
   document.getElementById('t_damagedSection').style.display = isDamaged ? '' : 'none';
 
   if (isDamaged) {
-    // Rebuild checkboxes fresh each time Damaged is selected
     const html = creditComponentDetails.length > 0
       ? creditComponentDetails.map(c =>
           '<div class="form-check mb-2">' +
             '<input class="form-check-input component-check" type="checkbox" id="cc_' + c.id + '" value="' + c.id + '" checked onchange="updateRemovedComponents()">' +
             '<label class="form-check-label" for="cc_' + c.id + '">' +
-              '<strong>' + c.name + '</strong>' +
+              '<strong>' + escapeHtml(c.name) + '</strong>' +
               '<span class="badge bg-warning text-dark ms-1">× ' + c.usedQuantity + ' per unit</span>' +
             '</label>' +
           '</div>'
@@ -478,15 +590,14 @@ function onCreditStatusChange() {
     document.getElementById('t_componentCheckboxes').innerHTML = html;
     updateRemovedComponents();
   } else {
-    // FIX: Clear checkboxes and reset removedComponentsJson when switching away from Damaged
     document.getElementById('t_componentCheckboxes').innerHTML =
       '<p class="text-muted small mb-0">Select Damaged status first.</p>';
     document.getElementById('removedComponentsJson').value = '[]';
+    renderTertiaryBatchAllocation();
   }
 }
 
 function updateRemovedComponents() {
-  // FIX: Only count unchecked boxes within the VISIBLE damaged section
   const section = document.getElementById('t_damagedSection');
   const isDamagedVisible = section && section.style.display !== 'none';
   const unchecked = [];
@@ -495,6 +606,154 @@ function updateRemovedComponents() {
       .forEach(cb => unchecked.push(cb.value));
   }
   document.getElementById('removedComponentsJson').value = JSON.stringify(unchecked);
+  renderTertiaryBatchAllocation();
+}
+
+function getActiveCreditComponents() {
+  const isDamaged = document.getElementById('t_statusDamaged').checked;
+  let removed = [];
+  try { removed = JSON.parse(document.getElementById('removedComponentsJson').value || '[]'); } catch(e) {}
+  return (creditComponentDetails || []).filter(component => !isDamaged || !removed.includes(component.id));
+}
+
+function autoFillComponentBatches(activeComponents, targetQty) {
+  let remaining = parseFloat(targetQty || 0);
+  const autoFillMap = new Map();
+
+  (activeComponents || []).forEach(component => {
+    (component.batchStock || [])
+      .filter(batch => parseFloat(batch.quantity || 0) > 0)
+      .forEach(batch => {
+        const available = parseFloat(batch.quantity || 0);
+        const take = Math.min(available, remaining);
+        remaining = Math.max(0, remaining - take);
+        const key = component.id + '::' + (batch.batchId || '');
+        autoFillMap.set(key, Math.round((take + Number.EPSILON) * 1000000) / 1000000);
+      });
+  });
+
+  return autoFillMap;
+}
+
+function renderTertiaryBatchAllocation() {
+  const amount = parseFloat(document.getElementById('t_creditAmountInput').value || 0);
+  const panel = document.getElementById('t_batchAllocationPanel');
+  const body = document.getElementById('t_batchAllocationBody');
+  const status = document.querySelector('input[name="productionStatus"]:checked');
+
+  if (!amount || amount <= 0 || !status) {
+    panel.style.display = 'none';
+    body.innerHTML = '';
+    document.getElementById('componentBatchSelectionsJson').value = '[]';
+    return;
+  }
+
+  const activeComponents = getActiveCreditComponents();
+  const autoFillMap = autoFillComponentBatches(activeComponents, amount);
+  const availableGrandTotal = activeComponents.reduce((sum, component) => {
+    return sum + (component.batchStock || []).reduce((innerSum, batch) => innerSum + parseFloat(batch.quantity || 0), 0);
+  }, 0);
+
+  panel.style.display = '';
+
+  if (activeComponents.length === 0) {
+    body.innerHTML = '<div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>No secondary components are selected for this production credit.</div>';
+    document.getElementById('componentBatchSelectionsJson').value = '[]';
+    return;
+  }
+
+  let html = '';
+  html += '<div class="alert alert-info py-2 mb-3 d-flex flex-wrap justify-content-between gap-2">';
+  html += '<span><i class="bi bi-bullseye me-1"></i>Credit quantity target: <strong>' + formatUnits(amount) + '</strong> units</span>';
+  html += '<span>Available from related secondary batches: <strong>' + formatUnits(availableGrandTotal) + '</strong> units</span>';
+  html += '</div>';
+
+  activeComponents.forEach(component => {
+    const batches = (component.batchStock || []).filter(batch => parseFloat(batch.quantity || 0) > 0);
+    const availableTotal = batches.reduce((sum, b) => sum + parseFloat(b.quantity || 0), 0);
+
+    html += '<div class="card border-0 shadow-sm mb-3 batch-allocation-product" data-product-id="' + component.id + '" data-product-name="' + escapeHtml(component.name) + '">';
+    html += '<div class="card-header bg-light d-flex justify-content-between align-items-center"><div><strong>' + escapeHtml(component.name) + '</strong><small class="text-muted ms-2">Related secondary product</small></div><span class="badge bg-secondary allocation-status">Selected: 0</span></div>';
+    html += '<div class="card-body">';
+    html += '<div class="small text-muted mb-2">Available across batches: <strong>' + formatUnits(availableTotal) + '</strong> units</div>';
+
+    if (batches.length === 0) {
+      html += '<div class="alert alert-light border py-2 mb-0">No available batches for this secondary product.</div>';
+    } else {
+      html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Batch Number</th><th>Available</th><th style="width:170px">Units to use</th></tr></thead><tbody>';
+      batches.forEach(batch => {
+        const key = component.id + '::' + (batch.batchId || '');
+        const autoQty = autoFillMap.get(key) || 0;
+        html += '<tr><td><span class="badge bg-warning text-dark"><i class="bi bi-tag-fill me-1"></i>' + escapeHtml(batch.batchNumber || 'Unassigned') + '</span></td><td>' + formatUnits(batch.quantity) + '</td><td><input type="number" class="form-control form-control-sm t-batch-allocation-input" min="0" step="0.01" max="' + batch.quantity + '" value="' + autoQty + '" data-product-id="' + component.id + '" data-product-name="' + escapeHtml(component.name) + '" data-batch-id="' + escapeHtml(batch.batchId || '') + '" data-batch-number="' + escapeHtml(batch.batchNumber || '') + '" data-available="' + batch.quantity + '" oninput="updateTertiaryBatchSelectionJson()"></td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div></div>';
+  });
+
+  body.innerHTML = html;
+  updateTertiaryBatchSelectionJson();
+}
+
+function updateTertiaryBatchSelectionJson() {
+  const productCards = document.querySelectorAll('.batch-allocation-product');
+  const creditAmount = parseFloat(document.getElementById('t_creditAmountInput').value || 0);
+  const groups = [];
+  const errors = [];
+  let grandSelected = 0;
+
+  productCards.forEach(card => {
+    const productId = card.dataset.productId;
+    const productName = card.dataset.productName;
+    const inputs = card.querySelectorAll('.t-batch-allocation-input');
+    let selected = 0;
+    const batches = [];
+
+    inputs.forEach(input => {
+      const quantity = parseFloat(input.value || 0);
+      const available = parseFloat(input.dataset.available || 0);
+      input.classList.remove('is-invalid');
+
+      if (quantity < 0 || quantity > available + 0.000001) {
+        input.classList.add('is-invalid');
+        errors.push(productName + ' / batch ' + input.dataset.batchNumber + ': selected quantity cannot exceed available units (' + formatUnits(available) + ').');
+      }
+
+      if (quantity > 0) {
+        selected += quantity;
+        batches.push({
+          batchId: input.dataset.batchId,
+          batchNumber: input.dataset.batchNumber,
+          quantity: Math.round((quantity + Number.EPSILON) * 1000000) / 1000000,
+        });
+      }
+    });
+
+    selected = Math.round((selected + Number.EPSILON) * 1000000) / 1000000;
+    grandSelected = Math.round((grandSelected + selected + Number.EPSILON) * 1000000) / 1000000;
+
+    const statusBadge = card.querySelector('.allocation-status');
+    if (statusBadge) {
+      statusBadge.textContent = 'Selected: ' + formatUnits(selected);
+      statusBadge.className = 'badge allocation-status ' + (selected > 0 ? 'bg-success' : 'bg-secondary');
+    }
+
+    groups.push({ productId, productName, batches });
+  });
+
+  if (Math.abs(grandSelected - creditAmount) > 0.000001) {
+    errors.push('Total selected secondary units must equal the tertiary credit quantity. Credit: ' + formatUnits(creditAmount) + ', selected: ' + formatUnits(grandSelected) + '.');
+  }
+
+  document.getElementById('componentBatchSelectionsJson').value = JSON.stringify(groups);
+  const errorBox = document.getElementById('t_batchAllocationErrors');
+  if (errors.length > 0) {
+    errorBox.innerHTML = '<div class="alert alert-danger py-2 mb-0"><strong>Please fix batch allocation:</strong><ul class="mb-0 mt-1">' + errors.map(e => '<li>' + escapeHtml(e) + '</li>').join('') + '</ul></div>';
+    return false;
+  }
+
+  errorBox.innerHTML = '<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle me-1"></i>Batch allocation is valid. Total selected: <strong>' + formatUnits(grandSelected) + '</strong> / Credit: <strong>' + formatUnits(creditAmount) + '</strong>.</div>';
+  return true;
 }
 
 document.getElementById('creditForm').addEventListener('submit', function(e) {
@@ -502,9 +761,14 @@ document.getElementById('creditForm').addEventListener('submit', function(e) {
   if (!status) { e.preventDefault(); alert('Please select a production status.'); return; }
   const bsel = document.getElementById('creditBatchSelector');
   if (bsel && !bsel.value) { e.preventDefault(); alert('Batch Number is required to add production credit.'); return; }
-  // Safety: if Finished, always clear removedComponentsJson
   if (status.value === 'Finished') {
     document.getElementById('removedComponentsJson').value = '[]';
+  }
+  const amount = parseFloat(document.getElementById('t_creditAmountInput').value || 0);
+  if (!amount || amount <= 0) { e.preventDefault(); alert('Please enter a valid production quantity.'); return; }
+  if (!updateTertiaryBatchSelectionJson()) {
+    e.preventDefault();
+    alert('Please complete a valid secondary batch allocation before saving.');
   }
 });
 
@@ -514,6 +778,7 @@ document.querySelectorAll('.sell-btn').forEach(btn => {
     const productId   = this.dataset.id;
     const productName = this.dataset.name;
     const stock       = parseFloat(this.dataset.stock) || 0;
+    currentSellBatchStock = getDecodedJson(this.dataset.batchStock, []).filter(batch => parseFloat(batch.quantity || 0) > 0);
 
     document.getElementById('sellProductName').textContent = productName;
     document.getElementById('sellAvailableStock').textContent = stock + ' units';
@@ -521,19 +786,34 @@ document.querySelectorAll('.sell-btn').forEach(btn => {
     document.getElementById('sellQuantityInput').max = stock;
     document.getElementById('sellForm').action = '/tertiary/' + productId + '/sell';
 
+    const selector = document.getElementById('sellBatchSelector');
+    selector.innerHTML = '<option value="">— Select batch —</option>' + currentSellBatchStock.map(batch => '<option value="' + escapeHtml(batch.batchId) + '" data-available="' + batch.quantity + '">' + escapeHtml(batch.batchNumber || 'Unassigned') + ' — ' + formatUnits(batch.quantity) + ' units available</option>').join('');
+    document.getElementById('sellBatchAvailableText').textContent = currentSellBatchStock.length > 0 ? 'Choose a batch to see available units.' : 'No batch-level stock is available for this product.';
+
     new bootstrap.Modal(document.getElementById('sellModal')).show();
   });
 });
 
+function updateSellBatchAvailability() {
+  const selector = document.getElementById('sellBatchSelector');
+  const option = selector.options[selector.selectedIndex];
+  const available = parseFloat(option.dataset.available || 0);
+  document.getElementById('sellQuantityInput').max = available || 0;
+  document.getElementById('sellBatchAvailableText').textContent = selector.value ? ('Available in selected batch: ' + formatUnits(available) + ' units') : 'Choose a batch to see available units.';
+}
+
 document.getElementById('sellForm').addEventListener('submit', function(e) {
+  const selector = document.getElementById('sellBatchSelector');
+  const selectedOption = selector.options[selector.selectedIndex];
   const qty = parseFloat(document.getElementById('sellQuantityInput').value);
-  const max = parseFloat(document.getElementById('sellQuantityInput').max);
+  const batchMax = parseFloat(selectedOption ? selectedOption.dataset.available || 0 : 0);
+
+  if (!selector.value) { e.preventDefault(); alert('Please select the batch number to sell from.'); return; }
   if (!qty || qty <= 0) { e.preventDefault(); alert('Please enter a valid quantity.'); return; }
-  if (qty > max) { e.preventDefault(); alert('Sold quantity cannot exceed available stock (' + max + ' units).'); return; }
+  if (qty > batchMax + 0.000001) { e.preventDefault(); alert('Sold quantity cannot exceed selected batch stock (' + formatUnits(batchMax) + ' units).'); return; }
 });
 
 // ── Edit modal handled by main.js ─────────────────────────────────────────────
-
 </script>
 
 <%- include('partials/footer') %>

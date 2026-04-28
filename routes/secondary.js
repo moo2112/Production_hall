@@ -5,6 +5,15 @@ const PrimaryProduct = require("../models/primaryProduct");
 const Batch = require("../models/batch");
 const ActivityLog = require("../models/activityLog");
 
+function parseJson(value, fallback) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch (_) {
+    return fallback;
+  }
+}
+
 // ── GET /secondary ────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
@@ -37,14 +46,8 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name, description, componentsJson } = req.body;
-    let components = [];
-    if (componentsJson) {
-      try {
-        components = JSON.parse(componentsJson);
-      } catch (e) {
-        throw new Error("Invalid components data");
-      }
-    }
+    const components = parseJson(componentsJson, []);
+
     const errors = SecondaryProduct.validate({ name, description, components });
     if (errors.length > 0) {
       const [products, primaryProducts, batches] = await Promise.all([
@@ -61,18 +64,22 @@ router.post("/", async (req, res) => {
         success: null,
       });
     }
+
     await SecondaryProduct.create({
       name: name.trim(),
       description: description || "",
       quantity: 0,
+      batchStock: [],
       components,
     });
+
     await ActivityLog.log({
       action: "Secondary Product Encoded",
       itemName: name,
       itemType: "Secondary",
       notes: `Recipe: ${components.length} primary component(s)`,
     });
+
     res.redirect("/secondary?success=Secondary product encoded successfully");
   } catch (error) {
     const [products, primaryProducts, batches] = await Promise.all([
@@ -110,8 +117,12 @@ router.post("/:id/produce", async (req, res) => {
     if (!["Finished", "Damaged"].includes(productionStatus))
       throw new Error("Production status is required (Finished or Damaged)");
 
-    const product = await SecondaryProduct.getById(id);
+    const [product, batch] = await Promise.all([
+      SecondaryProduct.getById(id),
+      Batch.getById(batchId),
+    ]);
     if (!product) throw new Error("Product not found");
+    if (!batch) throw new Error("Selected batch was not found");
 
     const productionAmount = parseFloat(amount);
     let componentsToDeduct = product.components || [];
@@ -120,14 +131,10 @@ router.post("/:id/produce", async (req, res) => {
     // ── Damaged: filter out unchecked (missing) components ───────────────────
     // For Finished: always deduct ALL components regardless of removedComponentsJson.
     if (productionStatus === "Damaged" && removedComponentsJson) {
-      try {
-        removedIds = JSON.parse(removedComponentsJson);
-        componentsToDeduct = componentsToDeduct.filter(
-          (c) => !removedIds.includes(c.productId),
-        );
-      } catch (e) {
-        /* ignore parse errors — proceed with full deduction */
-      }
+      removedIds = parseJson(removedComponentsJson, []);
+      componentsToDeduct = componentsToDeduct.filter(
+        (c) => !removedIds.includes(c.productId),
+      );
     }
 
     // Scale component quantities by the number of units produced
@@ -143,12 +150,7 @@ router.post("/:id/produce", async (req, res) => {
       await SecondaryProduct.deductStock(scaled);
     }
 
-    // ── FIX: Damaged sync to Primary Products page ───────────────────────────
-    // When this secondary production run is Damaged, every primary component
-    // that WAS consumed (i.e. the checked / not-removed ones) must also have
-    // its damagedQuantity incremented on the Primary Product document.
-    // This ensures the Primary Products page correctly reflects which components
-    // were consumed in a failed/damaged run, making the damaged tally visible.
+    // ── Damaged sync to Primary Products page ────────────────────────────────
     if (productionStatus === "Damaged" && scaled.length > 0) {
       await Promise.all(
         scaled.map((comp) =>
@@ -157,23 +159,22 @@ router.post("/:id/produce", async (req, res) => {
       );
     }
 
-    // ── Record production credit on secondary product ─────────────────────────
+    // ── Record production credit and batch-level distribution ────────────────
     await SecondaryProduct.addCredit(
       id,
       productionAmount,
       productionStatus === "Damaged",
+      batch,
     );
-
-    const batch = await Batch.getById(batchId);
-    const batchNumber = batch ? batch.batchNumber : null;
 
     await ActivityLog.log({
       action: `Secondary Product Credit Added (${productionStatus})`,
       itemName: batchItemName || product.name,
       itemType: "Secondary",
-      batchNumber,
+      batchNumber: batch.batchNumber,
       quantity: productionAmount,
       status: productionStatus,
+      notes: `Batch distribution updated for ${product.name}`,
     });
 
     res.redirect("/secondary?success=Production credit added successfully");
@@ -204,14 +205,8 @@ router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, quantity, damages, componentsJson } = req.body;
-    let components = [];
-    if (componentsJson) {
-      try {
-        components = JSON.parse(componentsJson);
-      } catch (e) {
-        throw new Error("Invalid components data");
-      }
-    }
+    const components = parseJson(componentsJson, []);
+
     const errors = SecondaryProduct.validate({ name, description, components });
     if (errors.length > 0)
       return res.status(400).json({ error: errors.join(", ") });
