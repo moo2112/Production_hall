@@ -82,6 +82,59 @@ function addBatchQuantity(batchStock, batchInfo, quantity, sourceBatches = []) {
   ]);
 }
 
+function collectRestorableSecondaryAllocations(productData = {}) {
+  const allocationsByKey = new Map();
+
+  const registerSourceBatch = (source = {}) => {
+    const secondaryProductId = source.secondaryProductId || source.productId;
+    const secondaryProductName =
+      source.secondaryProductName || source.productName || "Secondary Product";
+    const batchId = source.batchId || "__manual__";
+    const batchNumber = source.batchNumber || "Manual / Unassigned";
+    const quantity = roundQty(source.quantity);
+
+    if (!secondaryProductId || !batchId || quantity <= EPSILON) return;
+
+    const key = `${secondaryProductId}::${batchId}::${batchNumber}`;
+    const existing = allocationsByKey.get(key) || {
+      secondaryProductId,
+      secondaryProductName,
+      batchId,
+      batchNumber,
+      quantity: 0,
+    };
+
+    existing.quantity = roundQty(existing.quantity + quantity);
+    allocationsByKey.set(key, existing);
+  };
+
+  normalizeBatchStock(productData.batchStock || []).forEach((stockEntry) => {
+    if (Array.isArray(stockEntry.sourceBatches)) {
+      stockEntry.sourceBatches.forEach(registerSourceBatch);
+    }
+  });
+
+  // Backward-compatible support if older records kept source allocations at
+  // the product root instead of inside each tertiary batchStock row.
+  if (Array.isArray(productData.sourceBatches)) {
+    productData.sourceBatches.forEach(registerSourceBatch);
+  }
+
+  return Array.from(allocationsByKey.values()).sort((a, b) => {
+    const productCompare = String(a.secondaryProductName || "").localeCompare(
+      String(b.secondaryProductName || ""),
+      undefined,
+      { numeric: true },
+    );
+    if (productCompare !== 0) return productCompare;
+    return String(a.batchNumber || "").localeCompare(
+      String(b.batchNumber || ""),
+      undefined,
+      { numeric: true },
+    );
+  });
+}
+
 function deductQuantityFromBatchStock(batchStock, quantity) {
   let remaining = roundQty(quantity);
   const nextStock = [];
@@ -503,10 +556,114 @@ class TertiaryProduct {
     }
   }
 
+  static getRestorableSecondaryAllocations(productData = {}) {
+    return collectRestorableSecondaryAllocations(productData);
+  }
+
   static async delete(id) {
     try {
-      await db.collection(this.collectionName).doc(id).delete();
-      return true;
+      const docRef = db.collection(this.collectionName).doc(id);
+      let deletedProduct = null;
+      let restoredAllocations = [];
+
+      await db.runTransaction(async (t) => {
+        const doc = await t.get(docRef);
+
+        // Idempotency: if the delete request is retried after a successful
+        // transaction, the tertiary document no longer exists, so no stock is
+        // restored a second time.
+        if (!doc.exists) return;
+
+        const data = doc.data();
+        deletedProduct = { id: doc.id, ...data };
+        restoredAllocations = collectRestorableSecondaryAllocations(data);
+
+        const hasStockToRestore =
+          toNumber(data.quantity || 0) > EPSILON ||
+          this.getBatchTotal(data.batchStock || []) > EPSILON ||
+          restoredAllocations.length > 0;
+
+        if (hasStockToRestore && restoredAllocations.length === 0) {
+          throw new Error(
+            "Cannot safely delete this tertiary product because its original secondary batch allocation history is missing. Re-create or repair the sourceBatches data before deleting so stock is restored to the exact batches.",
+          );
+        }
+
+        const groupedBySecondary = new Map();
+        restoredAllocations.forEach((allocation) => {
+          const current =
+            groupedBySecondary.get(allocation.secondaryProductId) || [];
+          current.push(allocation);
+          groupedBySecondary.set(allocation.secondaryProductId, current);
+        });
+
+        const secondaryDocs = new Map();
+        for (const secondaryProductId of groupedBySecondary.keys()) {
+          const secondaryRef = db
+            .collection("secondaryProducts")
+            .doc(secondaryProductId);
+          const secondaryDoc = await t.get(secondaryRef);
+
+          if (!secondaryDoc.exists) {
+            throw new Error(
+              `Cannot restore stock: related secondary product ${secondaryProductId} no longer exists`,
+            );
+          }
+
+          secondaryDocs.set(secondaryProductId, {
+            ref: secondaryRef,
+            data: secondaryDoc.data(),
+          });
+        }
+
+        for (const [secondaryProductId, allocations] of groupedBySecondary) {
+          const { ref, data: secondaryData } =
+            secondaryDocs.get(secondaryProductId);
+          const restoredQuantity = roundQty(
+            allocations.reduce(
+              (sum, allocation) => sum + allocation.quantity,
+              0,
+            ),
+          );
+
+          let restoredBatchStock = normalizeBatchStock(
+            secondaryData.batchStock || [],
+          );
+
+          allocations.forEach((allocation) => {
+            restoredBatchStock = addBatchQuantity(
+              restoredBatchStock,
+              {
+                batchId: allocation.batchId,
+                batchNumber: allocation.batchNumber,
+              },
+              allocation.quantity,
+            );
+          });
+
+          t.update(ref, {
+            quantity: roundQty(
+              toNumber(secondaryData.quantity || 0) + restoredQuantity,
+            ),
+            batchStock: restoredBatchStock,
+            updatedAt: new Date(),
+          });
+        }
+
+        t.delete(docRef);
+      });
+
+      return {
+        deleted: Boolean(deletedProduct),
+        product: deletedProduct,
+        restoredAllocations,
+        restoredQuantity: roundQty(
+          restoredAllocations.reduce(
+            (sum, allocation) => sum + allocation.quantity,
+            0,
+          ),
+        ),
+      };
     } catch (error) {
       throw new Error(`Error deleting tertiary product: ${error.message}`);
     }

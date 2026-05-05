@@ -130,7 +130,7 @@ router.get("/", async (req, res) => {
       products,
       secondaryProducts,
       batches,
-      error: null,
+      error: req.query.error || null,
       success: req.query.success || null,
     });
   } catch (error) {
@@ -434,17 +434,37 @@ router.put("/:id", async (req, res) => {
 // ── DELETE /tertiary/:id ──────────────────────────────────────────────────────
 router.delete("/:id", async (req, res) => {
   try {
-    const product = await TertiaryProduct.getById(req.params.id);
-    await TertiaryProduct.delete(req.params.id);
-    if (product)
+    const deletion = await TertiaryProduct.delete(req.params.id);
+
+    if (deletion.deleted && deletion.product) {
+      const restoredBatches = deletion.restoredAllocations || [];
       await ActivityLog.log({
         action: "Tertiary Product Deleted",
-        itemName: product.name,
+        itemName: deletion.product.name,
         itemType: "Tertiary",
+        quantity: deletion.restoredQuantity || 0,
+        notes:
+          restoredBatches.length > 0
+            ? `Restored ${restoredBatches.length} secondary batch allocation(s) to their original batches`
+            : "No secondary stock restoration was required",
       });
-    res.redirect("/tertiary?success=Tertiary product deleted successfully");
+    }
+
+    res.redirect(
+      "/tertiary?success=" +
+        encodeURIComponent(
+          deletion.deleted
+            ? "Tertiary product deleted and component stock restored successfully"
+            : "Tertiary product was already deleted",
+        ),
+    );
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.redirect(
+      "/tertiary?error=" +
+        encodeURIComponent(
+          error.message || "Unable to delete tertiary product",
+        ),
+    );
   }
 });
 
