@@ -41,6 +41,28 @@ function normalizeAllocationGroups(rawAllocations) {
     .filter((group) => group.productId && group.batches.length > 0);
 }
 
+/**
+ * ── QC GUARD: Secondary batches ───────────────────────────────────────────────
+ * Checks every secondary batch the user wants to consume when producing a
+ * tertiary product.  Throws a descriptive error if any of them is rejected.
+ */
+async function enforceQcOnSecondaryAllocations(rawAllocations) {
+  const allocations = normalizeAllocationGroups(rawAllocations);
+  for (const group of allocations) {
+    for (const batch of group.batches) {
+      if (batch.batchId && batch.batchId !== "__manual__") {
+        const batchDoc = await Batch.getById(batch.batchId);
+        if (batchDoc && batchDoc.qualityStatus === "rejected") {
+          throw new Error(
+            `Quality Control Violation: Secondary batch "${batchDoc.batchNumber}" has been rejected by Quality Control. ` +
+              `Rejected secondary batches cannot be used to produce tertiary products.`,
+          );
+        }
+      }
+    }
+  }
+}
+
 async function validateComponentBatchSelections(
   activeComponents,
   rawAllocations,
@@ -49,54 +71,48 @@ async function validateComponentBatchSelections(
   const allocations = normalizeAllocationGroups(rawAllocations);
   const sourceBatches = [];
   const allowedComponents = new Map(
-    (Array.isArray(activeComponents) ? activeComponents : []).map(
-      (component) => [component.productId, component],
-    ),
+    (Array.isArray(activeComponents) ? activeComponents : []).map((c) => [
+      c.productId,
+      c,
+    ]),
   );
 
-  if (allowedComponents.size === 0) {
+  if (allowedComponents.size === 0)
     throw new Error(
       "This tertiary product has no selectable secondary products",
     );
-  }
 
-  if (allocations.length === 0) {
+  if (allocations.length === 0)
     throw new Error(
       `Please select secondary product batches. The total selected units must equal ${requiredTotal}`,
     );
-  }
 
   let selectedGrandTotal = 0;
 
   for (const allocation of allocations) {
     const component = allowedComponents.get(allocation.productId);
-    if (!component) {
+    if (!component)
       throw new Error(
         `Selected secondary product ${allocation.productName || allocation.productId} is not related to this tertiary product`,
       );
-    }
 
     const secondaryProduct = await SecondaryProduct.getById(
       allocation.productId,
     );
-    if (!secondaryProduct) {
+    if (!secondaryProduct)
       throw new Error(
         `Secondary product not found for ${component.name || allocation.productName || allocation.productId}`,
       );
-    }
 
     allocation.batches.forEach((batch) => {
       const batchStock = (secondaryProduct.batchStock || []).find(
-        (entry) => entry.batchId === batch.batchId,
+        (e) => e.batchId === batch.batchId,
       );
       const available = batchStock ? roundQty(batchStock.quantity) : 0;
-
-      if (!batchStock || available + EPSILON < batch.quantity) {
+      if (!batchStock || available + EPSILON < batch.quantity)
         throw new Error(
           `Cannot use ${batch.quantity} units from ${secondaryProduct.name} batch ${batch.batchNumber}. Available: ${available}`,
         );
-      }
-
       selectedGrandTotal = roundQty(selectedGrandTotal + batch.quantity);
     });
 
@@ -108,11 +124,10 @@ async function validateComponentBatchSelections(
   }
 
   const targetTotal = roundQty(requiredTotal);
-  if (Math.abs(selectedGrandTotal - targetTotal) > EPSILON) {
+  if (Math.abs(selectedGrandTotal - targetTotal) > EPSILON)
     throw new Error(
       `The sum of all selected secondary product units must equal the tertiary credit quantity. Credit: ${targetTotal}, selected: ${selectedGrandTotal}`,
     );
-  }
 
   return sourceBatches;
 }
@@ -130,7 +145,7 @@ router.get("/", async (req, res) => {
       products,
       secondaryProducts,
       batches,
-      error: req.query.error || null,
+      error: null,
       success: req.query.success || null,
     });
   } catch (error) {
@@ -150,7 +165,6 @@ router.post("/", async (req, res) => {
   try {
     const { name, description, componentsJson } = req.body;
     const components = parseJson(componentsJson, []);
-
     const errors = TertiaryProduct.validate({ name, description, components });
     if (errors.length > 0) {
       const [products, secondaryProducts, batches] = await Promise.all([
@@ -167,7 +181,6 @@ router.post("/", async (req, res) => {
         success: null,
       });
     }
-
     await TertiaryProduct.create({
       name: name.trim(),
       description: description || "",
@@ -175,14 +188,12 @@ router.post("/", async (req, res) => {
       batchStock: [],
       components,
     });
-
     await ActivityLog.log({
       action: "Tertiary Product Encoded",
       itemName: name,
       itemType: "Tertiary",
       notes: `Recipe: ${components.length} secondary component(s)`,
     });
-
     res.redirect("/tertiary?success=Tertiary product encoded successfully");
   } catch (error) {
     const [products, secondaryProducts, batches] = await Promise.all([
@@ -201,7 +212,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ── POST /tertiary/:id/produce — ADD CREDIT (deducts selected secondary batches)
+// ── POST /tertiary/:id/produce — ADD CREDIT ──────────────────────────────────
 router.post("/:id/produce", async (req, res) => {
   try {
     const { id } = req.params;
@@ -221,12 +232,16 @@ router.post("/:id/produce", async (req, res) => {
     if (!["Finished", "Damaged"].includes(productionStatus))
       throw new Error("Production status is required (Finished or Damaged)");
 
-    const [product, batch] = await Promise.all([
-      TertiaryProduct.getById(id),
-      Batch.getById(batchId),
-    ]);
+    // ── QC GUARD: target tertiary batch must not be rejected ─────────────────
+    const targetBatchDoc = await Batch.getById(batchId);
+    if (!targetBatchDoc) throw new Error("Selected batch was not found");
+    if (targetBatchDoc.qualityStatus === "rejected")
+      throw new Error(
+        `Quality Control Violation: Batch "${targetBatchDoc.batchNumber}" has been rejected by Quality Control and cannot be used for production.`,
+      );
+
+    const product = await TertiaryProduct.getById(id);
     if (!product) throw new Error("Product not found");
-    if (!batch) throw new Error("Selected batch was not found");
 
     const productionAmount = parseFloat(amount);
     let componentsToDeduct = product.components || [];
@@ -240,7 +255,7 @@ router.post("/:id/produce", async (req, res) => {
 
     const selectableComponents = componentsToDeduct.map((component) => {
       const details = (product.componentDetails || []).find(
-        (detail) => detail.id === component.productId,
+        (d) => d.id === component.productId,
       );
       return {
         ...component,
@@ -252,15 +267,19 @@ router.post("/:id/produce", async (req, res) => {
       componentBatchSelectionsJson,
       [],
     );
-    let sourceBatches = [];
 
+    // ── QC GUARD: every secondary batch allocation must not be rejected ──────
+    if (componentBatchSelections.length > 0) {
+      await enforceQcOnSecondaryAllocations(componentBatchSelections);
+    }
+
+    let sourceBatches = [];
     if (selectableComponents.length > 0) {
       const selectedGroups = await validateComponentBatchSelections(
         selectableComponents,
         componentBatchSelections,
         roundQty(productionAmount),
       );
-
       for (const group of selectedGroups) {
         const deducted = await SecondaryProduct.deductFromBatches(
           group.productId,
@@ -282,15 +301,14 @@ router.post("/:id/produce", async (req, res) => {
       id,
       productionAmount,
       productionStatus === "Damaged",
-      batch,
+      targetBatchDoc,
       sourceBatches,
     );
-
     await ActivityLog.log({
       action: `Tertiary Product Credit Added (${productionStatus})`,
       itemName: batchItemName || product.name,
       itemType: "Tertiary",
-      batchNumber: batch.batchNumber,
+      batchNumber: targetBatchDoc.batchNumber,
       quantity: productionAmount,
       status: productionStatus,
       notes:
@@ -322,7 +340,7 @@ router.post("/:id/produce", async (req, res) => {
   }
 });
 
-// ── POST /tertiary/:id/sell — RECORD SOLD QUANTITY FROM SELECTED BATCH ───────
+// ── POST /tertiary/:id/sell — RECORD SALE ────────────────────────────────────
 router.post("/:id/sell", async (req, res) => {
   try {
     const { id } = req.params;
@@ -333,6 +351,17 @@ router.post("/:id/sell", async (req, res) => {
       throw new Error("Please enter a valid sold quantity");
     if (!batchId)
       throw new Error("Please select the tertiary batch to sell from");
+
+    // ── QC GUARD: batch must not be rejected before allowing sale ────────────
+    if (batchId !== "__manual__") {
+      const batchDoc = await Batch.getById(batchId);
+      if (batchDoc && batchDoc.qualityStatus === "rejected") {
+        throw new Error(
+          `Quality Control Violation: Batch "${batchDoc.batchNumber}" has been rejected by Quality Control. ` +
+            `Rejected batches cannot be sold.`,
+        );
+      }
+    }
 
     const product = await TertiaryProduct.getById(id);
     if (!product) throw new Error("Product not found");
@@ -346,7 +375,6 @@ router.post("/:id/sell", async (req, res) => {
       qty,
       batchId,
     );
-
     await ActivityLog.log({
       action: "Tertiary Product Sold",
       itemName: product.name,
@@ -355,7 +383,6 @@ router.post("/:id/sell", async (req, res) => {
       quantity: qty,
       status: "Sold",
     });
-
     res.redirect("/tertiary?success=Sold quantity recorded successfully");
   } catch (error) {
     let products = [],
@@ -385,7 +412,6 @@ router.put("/:id", async (req, res) => {
     const { id } = req.params;
     const { name, description, quantity, damages, componentsJson } = req.body;
     const components = parseJson(componentsJson, []);
-
     const errors = TertiaryProduct.validate({ name, description, components });
     if (errors.length > 0)
       return res.status(400).json({ error: errors.join(", ") });
@@ -434,37 +460,17 @@ router.put("/:id", async (req, res) => {
 // ── DELETE /tertiary/:id ──────────────────────────────────────────────────────
 router.delete("/:id", async (req, res) => {
   try {
-    const deletion = await TertiaryProduct.delete(req.params.id);
-
-    if (deletion.deleted && deletion.product) {
-      const restoredBatches = deletion.restoredAllocations || [];
+    const product = await TertiaryProduct.getById(req.params.id);
+    await TertiaryProduct.delete(req.params.id);
+    if (product)
       await ActivityLog.log({
         action: "Tertiary Product Deleted",
-        itemName: deletion.product.name,
+        itemName: product.name,
         itemType: "Tertiary",
-        quantity: deletion.restoredQuantity || 0,
-        notes:
-          restoredBatches.length > 0
-            ? `Restored ${restoredBatches.length} secondary batch allocation(s) to their original batches`
-            : "No secondary stock restoration was required",
       });
-    }
-
-    res.redirect(
-      "/tertiary?success=" +
-        encodeURIComponent(
-          deletion.deleted
-            ? "Tertiary product deleted and component stock restored successfully"
-            : "Tertiary product was already deleted",
-        ),
-    );
+    res.redirect("/tertiary?success=Tertiary product deleted successfully");
   } catch (error) {
-    res.redirect(
-      "/tertiary?error=" +
-        encodeURIComponent(
-          error.message || "Unable to delete tertiary product",
-        ),
-    );
+    res.status(500).json({ error: error.message });
   }
 });
 
