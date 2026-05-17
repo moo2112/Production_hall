@@ -66,7 +66,7 @@ async function enforceQcOnSecondaryAllocations(rawAllocations) {
 async function validateComponentBatchSelections(
   activeComponents,
   rawAllocations,
-  requiredTotal,
+  productionAmount,
 ) {
   const allocations = normalizeAllocationGroups(rawAllocations);
   const sourceBatches = [];
@@ -82,12 +82,27 @@ async function validateComponentBatchSelections(
       "This tertiary product has no selectable secondary products",
     );
 
-  if (allocations.length === 0)
-    throw new Error(
-      `Please select secondary product batches. The total selected units must equal ${requiredTotal}`,
-    );
+  // Each component is independent: required units of that secondary = credit × per-unit recipe quantity.
+  // No "shared total" across components anymore.
+  const targetPerComponent = new Map();
+  for (const comp of activeComponents) {
+    const used = toNumber(comp.usedQuantity, 1) || 1;
+    targetPerComponent.set(comp.productId, roundQty(productionAmount * used));
+  }
 
-  let selectedGrandTotal = 0;
+  if (allocations.length === 0) {
+    const summary = Array.from(targetPerComponent.entries())
+      .map(([pid, qty]) => {
+        const c = allowedComponents.get(pid);
+        return `${(c && c.name) || pid}: ${qty}`;
+      })
+      .join(", ");
+    throw new Error(
+      `Please select secondary product batches. Required per component — ${summary}.`,
+    );
+  }
+
+  const selectedByProduct = new Map();
 
   for (const allocation of allocations) {
     const component = allowedComponents.get(allocation.productId);
@@ -104,6 +119,7 @@ async function validateComponentBatchSelections(
         `Secondary product not found for ${component.name || allocation.productName || allocation.productId}`,
       );
 
+    let productSelected = 0;
     allocation.batches.forEach((batch) => {
       const batchStock = (secondaryProduct.batchStock || []).find(
         (e) => e.batchId === batch.batchId,
@@ -113,8 +129,15 @@ async function validateComponentBatchSelections(
         throw new Error(
           `Cannot use ${batch.quantity} units from ${secondaryProduct.name} batch ${batch.batchNumber}. Available: ${available}`,
         );
-      selectedGrandTotal = roundQty(selectedGrandTotal + batch.quantity);
+      productSelected = roundQty(productSelected + batch.quantity);
     });
+
+    selectedByProduct.set(
+      allocation.productId,
+      roundQty(
+        (selectedByProduct.get(allocation.productId) || 0) + productSelected,
+      ),
+    );
 
     sourceBatches.push({
       productId: allocation.productId,
@@ -123,11 +146,18 @@ async function validateComponentBatchSelections(
     });
   }
 
-  const targetTotal = roundQty(requiredTotal);
-  if (Math.abs(selectedGrandTotal - targetTotal) > EPSILON)
-    throw new Error(
-      `The sum of all selected secondary product units must equal the tertiary credit quantity. Credit: ${targetTotal}, selected: ${selectedGrandTotal}`,
-    );
+  // Each active component must match its own target exactly — components do NOT share a total.
+  for (const comp of activeComponents) {
+    const target = targetPerComponent.get(comp.productId) || 0;
+    const selected = roundQty(selectedByProduct.get(comp.productId) || 0);
+    if (Math.abs(selected - target) > EPSILON) {
+      throw new Error(
+        `Component "${comp.name || comp.productId}" requires exactly ${target} units selected ` +
+          `(credit ${roundQty(productionAmount)} × ${toNumber(comp.usedQuantity, 1) || 1} per unit). ` +
+          `Currently selected: ${selected}.`,
+      );
+    }
+  }
 
   return sourceBatches;
 }
@@ -278,7 +308,7 @@ router.post("/:id/produce", async (req, res) => {
       const selectedGroups = await validateComponentBatchSelections(
         selectableComponents,
         componentBatchSelections,
-        roundQty(productionAmount),
+        productionAmount,
       );
       for (const group of selectedGroups) {
         const deducted = await SecondaryProduct.deductFromBatches(

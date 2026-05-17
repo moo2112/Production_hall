@@ -671,10 +671,12 @@ function getActiveCreditComponents() {
   return (creditComponentDetails || []).filter(component => !isDamaged || !removed.includes(component.id));
 }
 
-function autoFillComponentBatches(activeComponents, targetQty) {
-  let remaining = parseFloat(targetQty || 0);
+function autoFillComponentBatches(activeComponents, creditQty) {
+  const credit = parseFloat(creditQty || 0);
   const autoFillMap = new Map();
   (activeComponents || []).forEach(component => {
+    const used = parseFloat(component.usedQuantity || 1) || 1;
+    let remaining = Math.round((credit * used + Number.EPSILON) * 1000000) / 1000000;
     (component.batchStock || [])
       .filter(batch => parseFloat(batch.quantity || 0) > 0 && !isBatchRejected(batch.batchId))
       .forEach(batch => {
@@ -703,11 +705,6 @@ function renderTertiaryBatchAllocation() {
 
   const activeComponents = getActiveCreditComponents();
   const autoFillMap = autoFillComponentBatches(activeComponents, amount);
-  const availableGrandTotal = activeComponents.reduce((sum, component) => {
-    return sum + (component.batchStock || [])
-      .filter(b => !isBatchRejected(b.batchId))
-      .reduce((innerSum, batch) => innerSum + parseFloat(batch.quantity || 0), 0);
-  }, 0);
 
   panel.style.display = '';
 
@@ -718,21 +715,31 @@ function renderTertiaryBatchAllocation() {
   }
 
   let html = '';
-  html += '<div class="alert alert-info py-2 mb-3 d-flex flex-wrap justify-content-between gap-2">';
-  html += '<span><i class="bi bi-bullseye me-1"></i>Credit target: <strong>' + formatUnits(amount) + '</strong> units</span>';
-  html += '<span>Available from secondary batches: <strong>' + formatUnits(availableGrandTotal) + '</strong> units</span>';
+  html += '<div class="alert alert-info py-2 mb-3">';
+  html += '<i class="bi bi-info-circle me-1"></i>Each secondary component has its <strong>own</strong> target — there is no shared total. Required units of each = credit (' + formatUnits(amount) + ') × per-unit recipe quantity.';
   html += '</div>';
 
   activeComponents.forEach(component => {
+    const used = parseFloat(component.usedQuantity || 1) || 1;
+    const componentTarget = Math.round((amount * used + Number.EPSILON) * 1000000) / 1000000;
     const allBatches  = (component.batchStock || []).filter(batch => parseFloat(batch.quantity || 0) > 0);
     const validBatches   = allBatches.filter(b => !isBatchRejected(b.batchId));
     const rejectedBatches = allBatches.filter(b => isBatchRejected(b.batchId));
     const availableTotal = validBatches.reduce((sum, b) => sum + parseFloat(b.quantity || 0), 0);
 
-    html += '<div class="card border-0 shadow-sm mb-3 batch-allocation-product" data-product-id="' + component.id + '" data-product-name="' + escapeHtml(component.name) + '">';
-    html += '<div class="card-header bg-light d-flex justify-content-between align-items-center"><div><strong>' + escapeHtml(component.name) + '</strong><small class="text-muted ms-2">Secondary product</small></div><span class="badge bg-secondary allocation-status">Selected: 0</span></div>';
+    html += '<div class="card border-0 shadow-sm mb-3 batch-allocation-product" data-product-id="' + component.id + '" data-product-name="' + escapeHtml(component.name) + '" data-component-target="' + componentTarget + '">';
+    html += '<div class="card-header bg-light d-flex justify-content-between align-items-center">';
+    html += '<div><strong>' + escapeHtml(component.name) + '</strong>';
+    html += '<small class="text-muted ms-2">Secondary product · target <strong>' + formatUnits(componentTarget) + '</strong> units (' + formatUnits(amount) + ' × ' + used + ')</small>';
+    html += '</div>';
+    html += '<span class="badge bg-secondary allocation-status">Selected: 0 / ' + formatUnits(componentTarget) + '</span>';
+    html += '</div>';
     html += '<div class="card-body">';
     html += '<div class="small text-muted mb-2">Available (non-rejected) batches: <strong>' + formatUnits(availableTotal) + '</strong> units</div>';
+
+    if (availableTotal + 0.000001 < componentTarget) {
+      html += '<div class="alert alert-warning py-2 mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Available stock (' + formatUnits(availableTotal) + ') is less than required (' + formatUnits(componentTarget) + ') for this component.</div>';
+    }
 
     if (validBatches.length === 0 && rejectedBatches.length === 0) {
       html += '<div class="alert alert-light border py-2 mb-0">No available batches.</div>';
@@ -772,11 +779,12 @@ function updateTertiaryBatchSelectionJson() {
   const creditAmount = parseFloat(document.getElementById('t_creditAmountInput').value || 0);
   const groups = [];
   const errors = [];
-  let grandSelected = 0;
+  let allComponentsValid = true;
 
   productCards.forEach(card => {
     const productId   = card.dataset.productId;
     const productName = card.dataset.productName;
+    const componentTarget = Math.round((parseFloat(card.dataset.componentTarget || 0) + Number.EPSILON) * 1000000) / 1000000;
     const inputs = card.querySelectorAll('.t-batch-allocation-input');
     let selected = 0;
     const batches = [];
@@ -797,27 +805,28 @@ function updateTertiaryBatchSelectionJson() {
     });
 
     selected = Math.round((selected + Number.EPSILON) * 1000000) / 1000000;
-    grandSelected = Math.round((grandSelected + selected + Number.EPSILON) * 1000000) / 1000000;
+
+    const matchesTarget = Math.abs(selected - componentTarget) <= 0.000001;
+    if (!matchesTarget) {
+      allComponentsValid = false;
+      errors.push(productName + ': selected ' + formatUnits(selected) + ' units, but exactly ' + formatUnits(componentTarget) + ' units are required (credit ' + formatUnits(creditAmount) + ' × per-unit recipe).');
+    }
 
     const statusBadge = card.querySelector('.allocation-status');
     if (statusBadge) {
-      statusBadge.textContent = 'Selected: ' + formatUnits(selected);
-      statusBadge.className = 'badge allocation-status ' + (selected > 0 ? 'bg-success' : 'bg-secondary');
+      statusBadge.textContent = 'Selected: ' + formatUnits(selected) + ' / ' + formatUnits(componentTarget);
+      statusBadge.className = 'badge allocation-status ' + (matchesTarget ? 'bg-success' : (selected > 0 ? 'bg-warning text-dark' : 'bg-secondary'));
     }
     groups.push({ productId, productName, batches });
   });
 
-  if (Math.abs(grandSelected - creditAmount) > 0.000001) {
-    errors.push('Total selected secondary units must equal the tertiary credit quantity. Credit: ' + formatUnits(creditAmount) + ', selected: ' + formatUnits(grandSelected) + '.');
-  }
-
   document.getElementById('componentBatchSelectionsJson').value = JSON.stringify(groups);
   const errorBox = document.getElementById('t_batchAllocationErrors');
-  if (errors.length > 0) {
+  if (errors.length > 0 || !allComponentsValid) {
     errorBox.innerHTML = '<div class="alert alert-danger py-2 mb-0"><strong>Please fix batch allocation:</strong><ul class="mb-0 mt-1">' + errors.map(e => '<li>' + escapeHtml(e) + '</li>').join('') + '</ul></div>';
     return false;
   }
-  errorBox.innerHTML = '<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle me-1"></i>Batch allocation is valid. Total: <strong>' + formatUnits(grandSelected) + '</strong> / Credit: <strong>' + formatUnits(creditAmount) + '</strong>.</div>';
+  errorBox.innerHTML = '<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle me-1"></i>Batch allocation is valid. Each secondary component matches its target.</div>';
   return true;
 }
 
