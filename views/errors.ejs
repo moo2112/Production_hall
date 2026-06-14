@@ -1,0 +1,124 @@
+<%- include('partials/header') %>
+<div class="row justify-content-center"><div class="col-lg-9">
+  <a href="/workers" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Back to Production Room Quality</a>
+  <h2 class="fw-bold mt-2 mb-4"><i class="bi bi-exclamation-octagon text-warning"></i> Record Production Error</h2>
+  <% if (error) { %><div class="alert alert-danger"><%= error %></div><% } %>
+
+  <!-- Step 1: look up the patch -->
+  <div class="card shadow-sm mb-3"><div class="card-body">
+    <form method="GET" action="/workers/errors" class="row g-2 align-items-end" autocomplete="off">
+      <div class="col-sm-8">
+        <label class="form-label fw-semibold">Patch (Batch) Number</label>
+        <div class="position-relative">
+          <input type="text" name="batchNumber" id="patchInput" class="form-control"
+                 value="<%= batchNumber %>"
+                 placeholder="Type or pick a patch number…" required
+                 autocomplete="off" role="combobox" aria-expanded="false"
+                 aria-controls="patchList">
+          <div id="patchList" class="list-group position-absolute w-100 shadow"
+               style="z-index:1056; max-height:260px; overflow:auto; display:none; top:100%;"></div>
+        </div>
+        <div class="form-text">Start typing to filter, or pick from the list. You can also type a patch number that isn't listed.</div>
+      </div>
+      <div class="col-sm-4"><button type="submit" class="btn btn-primary w-100"><i class="bi bi-search"></i> Look up patch</button></div>
+    </form>
+    <% if (lookupError) { %><div class="alert alert-warning mt-3 mb-0"><i class="bi bi-info-circle"></i> <%= lookupError %></div><% } %>
+  </div></div>
+
+  <script>
+    (function () {
+      var PATCHES = <%- JSON.stringify(allBatches || []) %>;
+      var input = document.getElementById('patchInput');
+      var list  = document.getElementById('patchList');
+      if (!input || !list) return;
+
+      function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+      function render(items) {
+        if (!items.length) { list.style.display = 'none'; input.setAttribute('aria-expanded','false'); return; }
+        list.innerHTML = items.map(function (p) {
+          return '<button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" data-num="'
+            + esc(p.batchNumber) + '">'
+            + '<span class="fw-semibold">' + esc(p.batchNumber) + '</span>'
+            + (p.itemName ? '<span class="text-muted small ms-2">' + esc(p.itemName) + '</span>' : '')
+            + '</button>';
+        }).join('');
+        list.style.display = 'block';
+        input.setAttribute('aria-expanded','true');
+      }
+
+      function filter() {
+        var q = input.value.trim().toLowerCase();
+        var matches = !q ? PATCHES.slice(0, 50)
+          : PATCHES.filter(function (p) {
+              return String(p.batchNumber).toLowerCase().indexOf(q) !== -1
+                  || String(p.itemName || '').toLowerCase().indexOf(q) !== -1;
+            }).slice(0, 50);
+        render(matches);
+      }
+
+      input.addEventListener('focus', filter);
+      input.addEventListener('input', filter);
+
+      list.addEventListener('mousedown', function (e) {
+        var btn = e.target.closest('[data-num]');
+        if (!btn) return;
+        e.preventDefault();
+        input.value = btn.getAttribute('data-num');
+        list.style.display = 'none';
+        input.setAttribute('aria-expanded','false');
+        // auto-submit the lookup once a patch is chosen
+        input.form.submit();
+      });
+
+      document.addEventListener('click', function (e) {
+        if (e.target !== input && !list.contains(e.target)) {
+          list.style.display = 'none';
+          input.setAttribute('aria-expanded','false');
+        }
+      });
+    })();
+  </script>
+
+  <% if (batch) { %>
+    <!-- Step 2: show patch fields + assign error to a worker -->
+    <div class="card shadow-sm"><div class="card-body">
+      <h5 class="fw-bold"><i class="bi bi-box-seam text-purple"></i> Patch <%= batch.batchNumber %> <span class="text-muted fw-normal">— <%= batch.itemName %></span></h5>
+      <div class="table-responsive mb-3"><table class="table table-sm table-bordered align-middle mb-0">
+        <thead class="table-light"><tr><th style="width:40%">Field</th><th>Answer</th></tr></thead>
+        <tbody>
+          <% batchFields.forEach(function(f){ %>
+            <tr><td class="fw-semibold"><%= f.label %></td><td><%= (f.value===''||f.value==null)?'—':f.value %></td></tr>
+          <% }); %>
+        </tbody>
+      </table></div>
+      <p class="text-muted small"><i class="bi bi-info-circle"></i> A field answer may be a worker's name (e.g. who filled the bottles). Pick that worker below to record the error in their profile.</p>
+
+      <form method="POST" action="/workers/errors">
+        <input type="hidden" name="batchNumber" value="<%= batch.batchNumber %>">
+        <input type="hidden" name="batchId" value="<%= batch.id %>">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label fw-semibold">Assign to worker <span class="text-danger">*</span></label>
+            <select name="workerId" class="form-select" required>
+              <option value="">— Choose worker —</option>
+              <% (workers||[]).forEach(function(w){ %><option value="<%= w.id %>"><%= w.name %></option><% }); %>
+            </select>
+          </div>
+          <div class="col-md-6"><label class="form-label fw-semibold">Related field (optional)</label>
+            <select name="fieldLabel" class="form-select">
+              <option value="">— None —</option>
+              <% batchFields.forEach(function(f){ %><option value="<%= f.label %>"><%= f.label %></option><% }); %>
+            </select>
+          </div>
+          <div class="col-md-6"><label class="form-label fw-semibold">Date</label>
+            <input type="date" name="date" class="form-control" value="<%= new Date().toISOString().slice(0,10) %>"></div>
+          <div class="col-12"><label class="form-label fw-semibold">Error description <span class="text-danger">*</span></label>
+            <textarea name="description" rows="3" class="form-control" required placeholder="What did the customer report / what went wrong?"></textarea></div>
+        </div>
+        <button type="submit" class="btn btn-warning mt-3"><i class="bi bi-save"></i> Record error in worker profile</button>
+      </form>
+    </div></div>
+  <% } %>
+</div></div>
+<%- include('partials/footer') %>

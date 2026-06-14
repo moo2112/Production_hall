@@ -88,6 +88,7 @@ const tertiaryRoutes = require("./routes/tertiary");
 const batchRoutes = require("./routes/batch");
 const formBuilderRoutes = require("./routes/formBuilder");
 const timelineRoutes = require("./routes/timeline");
+const workersRoutes = require("./routes/workers");
 
 app.get("/", (req, res) => {
   res.render("index", { title: "Production Hall" });
@@ -100,6 +101,7 @@ app.use("/tertiary", tertiaryRoutes);
 app.use("/batch", batchRoutes);
 app.use("/form-builder", formBuilderRoutes);
 app.use("/timeline", timelineRoutes);
+app.use("/workers", workersRoutes);
 
 // ── Error handlers ────────────────────────────────────────────────────────────
 app.use((req, res) => {

@@ -6,6 +6,7 @@
 // const SecondaryProduct = require("../models/secondaryProduct");
 // const TertiaryProduct = require("../models/tertiaryProduct");
 // const ActivityLog = require("../models/activityLog");
+const Worker = require("../models/worker");
 
 // function toNumber(value, fallback = 0) {
 //   const parsed = parseFloat(value);
@@ -590,16 +591,18 @@ async function buildBatchDetails(batchId) {
 // ── GET /batch ────────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
-    const [batches, templates, allProducts] = await Promise.all([
+    const [batches, templates, allProducts, workers] = await Promise.all([
       Batch.getAll(),
       FormTemplate.getAll(),
       loadAllProducts(),
+      Worker.getAll().catch(() => []),
     ]);
     res.render("batch", {
       title: "Batch Management",
       batches,
       templates,
       allProducts,
+      workers,
       error: null,
       success: req.query.success || null,
     });
@@ -609,6 +612,7 @@ router.get("/", async (req, res) => {
       batches: [],
       templates: [],
       allProducts: [],
+      workers: [],
       error: error.message,
       success: null,
     });
@@ -633,16 +637,18 @@ router.post("/", async (req, res) => {
     }
     const errors = Batch.validate({ batchNumber, itemId });
     if (errors.length > 0) {
-      const [batches, templates, allProducts] = await Promise.all([
+      const [batches, templates, allProducts, workers] = await Promise.all([
         Batch.getAll(),
         FormTemplate.getAll(),
         loadAllProducts(),
+        Worker.getAll().catch(() => []),
       ]);
       return res.render("batch", {
         title: "Batch Management",
         batches,
         templates,
         allProducts,
+        workers,
         error: errors.join(", "),
         success: null,
       });
@@ -665,16 +671,18 @@ router.post("/", async (req, res) => {
     });
     res.redirect("/batch?success=Batch recorded successfully");
   } catch (error) {
-    const [batches, templates, allProducts] = await Promise.all([
+    const [batches, templates, allProducts, workers] = await Promise.all([
       Batch.getAll(),
       FormTemplate.getAll(),
       loadAllProducts(),
+      Worker.getAll().catch(() => []),
     ]);
     res.render("batch", {
       title: "Batch Management",
       batches,
       templates,
       allProducts,
+      workers,
       error: error.message,
       success: null,
     });

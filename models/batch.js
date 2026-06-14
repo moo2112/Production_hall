@@ -177,6 +177,39 @@ class Batch {
     }
   }
 
+  /**
+   * Get the most recent batch (patch) that has a given batchNumber.
+   * Used when assigning a production error: the user types a patch number and we
+   * fetch the patch with all its field values. Returns null if none found.
+   */
+  static async getByNumber(batchNumber) {
+    try {
+      const target = String(batchNumber || "").trim();
+      if (!target) return null;
+      const snapshot = await db
+        .collection(this.collectionName)
+        .where("batchNumber", "==", target)
+        .get();
+      if (snapshot.empty) return null;
+      const rows = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      // newest first (createdAt may be a Firestore Timestamp)
+      rows.sort((a, b) => {
+        const ta =
+          a.createdAt && a.createdAt.toDate
+            ? a.createdAt.toDate().getTime()
+            : new Date(a.createdAt || 0).getTime();
+        const tb =
+          b.createdAt && b.createdAt.toDate
+            ? b.createdAt.toDate().getTime()
+            : new Date(b.createdAt || 0).getTime();
+        return tb - ta;
+      });
+      return rows[0];
+    } catch (error) {
+      throw new Error(`Error fetching batch by number: ${error.message}`);
+    }
+  }
+
   /** Delete a batch record. */
   static async delete(id) {
     try {

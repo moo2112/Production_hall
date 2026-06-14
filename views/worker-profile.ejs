@@ -1,0 +1,171 @@
+<%- include('partials/header') %>
+<% var rounds=(worker.qualityRounds||[]); var errs=(worker.productionErrors||[]); %>
+<div class="row"><div class="col-12">
+  <a href="/workers" class="text-decoration-none no-print"><i class="bi bi-arrow-left"></i> Back to Production Room Quality</a>
+  <% if (success) { %><div class="alert alert-success mt-2 no-print"><i class="bi bi-check-circle"></i> <%= success %></div><% } %>
+
+  <div class="d-flex justify-content-between align-items-center my-3 flex-wrap gap-2">
+    <div class="d-flex align-items-center">
+      <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center me-3" style="width:60px;height:60px;font-size:1.6rem;font-weight:700">
+        <%= (worker.name||'?').trim().charAt(0).toUpperCase() %>
+      </div>
+      <div><h2 class="fw-bold mb-0"><%= worker.name %></h2><div class="text-muted"><%= worker.role || 'Worker' %></div></div>
+    </div>
+    <div class="d-flex gap-2 no-print flex-wrap">
+      <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editWorkerModal"><i class="bi bi-pencil"></i> Edit worker</button>
+      <a href="/workers/<%= worker.id %>/pdf" class="btn btn-outline-danger"><i class="bi bi-file-earmark-pdf"></i> Download PDF</a>
+      <button onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer"></i> Print</button>
+      <form method="POST" action="/workers/<%= worker.id %>?_method=DELETE" onsubmit="return confirm('Delete this worker and their entire profile? This cannot be undone.')">
+        <button type="submit" class="btn btn-danger"><i class="bi bi-trash"></i> Delete worker</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mt-4">
+    <h5 class="fw-bold mb-0"><i class="bi bi-clipboard-check text-success"></i> Quality Precaution Rounds</h5>
+    <a href="/workers/quality" class="btn btn-sm btn-success no-print"><i class="bi bi-plus-circle"></i> Add round</a>
+  </div>
+  <div class="table-responsive mt-2"><table class="table table-bordered align-middle">
+    <thead class="table-success"><tr><th>Date</th><th>Area / Line</th><th>Precautions</th><th>Notes</th><th class="no-print text-center" style="width:110px">Actions</th></tr></thead>
+    <tbody>
+      <% if (!rounds.length) { %><tr><td colspan="5" class="text-center text-muted">No rounds recorded.</td></tr><% } %>
+      <% rounds.forEach(function(r){ %>
+        <tr>
+          <td><%= r.date || '—' %></td>
+          <td><%= r.area || '—' %></td>
+          <td><% if (r.precautions==='yes'){ %><span class="badge bg-success">Yes ✓</span><% } else { %><span class="badge bg-danger">No ✗</span><% } %></td>
+          <td><%= r.notes || '—' %></td>
+          <td class="no-print text-center">
+            <button class="btn btn-sm btn-outline-primary edit-round-btn"
+              data-id="<%= r.id %>" data-date="<%= r.date || '' %>" data-area="<%= r.area || '' %>"
+              data-precautions="<%= r.precautions || 'yes' %>" data-notes="<%= r.notes || '' %>"
+              title="Edit"><i class="bi bi-pencil"></i></button>
+            <form method="POST" action="/workers/<%= worker.id %>/rounds/<%= r.id %>?_method=DELETE" class="d-inline" onsubmit="return confirm('Delete this round?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table></div>
+
+  <div class="d-flex justify-content-between align-items-center mt-4">
+    <h5 class="fw-bold mb-0"><i class="bi bi-exclamation-octagon text-warning"></i> Production Errors</h5>
+    <a href="/workers/errors" class="btn btn-sm btn-warning no-print"><i class="bi bi-plus-circle"></i> Add error</a>
+  </div>
+  <div class="table-responsive mt-2"><table class="table table-bordered align-middle">
+    <thead class="table-warning"><tr><th>Date</th><th>Patch #</th><th>Field</th><th>Description</th><th class="no-print text-center" style="width:110px">Actions</th></tr></thead>
+    <tbody>
+      <% if (!errs.length) { %><tr><td colspan="5" class="text-center text-muted">No errors recorded.</td></tr><% } %>
+      <% errs.forEach(function(e){ %>
+        <tr>
+          <td><%= e.date || '—' %></td><td><%= e.batchNumber || '—' %></td><td><%= e.fieldLabel || '—' %></td><td><%= e.description || '—' %></td>
+          <td class="no-print text-center">
+            <button class="btn btn-sm btn-outline-primary edit-error-btn"
+              data-id="<%= e.id %>" data-date="<%= e.date || '' %>" data-batch="<%= e.batchNumber || '' %>"
+              data-field="<%= e.fieldLabel || '' %>" data-description="<%= e.description || '' %>"
+              title="Edit"><i class="bi bi-pencil"></i></button>
+            <form method="POST" action="/workers/<%= worker.id %>/errors/<%= e.id %>?_method=DELETE" class="d-inline" onsubmit="return confirm('Delete this error?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table></div>
+</div></div>
+
+<!-- Edit Worker modal -->
+<div class="modal fade" id="editWorkerModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <form method="POST" action="/workers/<%= worker.id %>?_method=PUT">
+    <div class="modal-header"><h5 class="modal-title"><i class="bi bi-pencil"></i> Edit Worker</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="mb-3"><label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+        <input type="text" name="name" class="form-control" required value="<%= worker.name || '' %>"></div>
+      <div class="mb-3"><label class="form-label fw-semibold">Role / Station</label>
+        <input type="text" name="role" class="form-control" value="<%= worker.role || '' %>"></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save changes</button></div>
+  </form>
+</div></div></div>
+
+<!-- Edit Round modal -->
+<div class="modal fade" id="editRoundModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <form method="POST" id="editRoundForm">
+    <div class="modal-header"><h5 class="modal-title"><i class="bi bi-clipboard-check"></i> Edit Round</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label fw-semibold">Date</label>
+          <input type="date" name="date" id="erDate" class="form-control"></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Area / Line</label>
+          <input type="text" name="area" id="erArea" class="form-control"></div>
+      </div>
+      <div class="mt-3"><label class="form-label fw-semibold d-block">Precautions</label>
+        <div class="btn-group" role="group">
+          <input type="radio" class="btn-check" name="precautions" id="erYes" value="yes">
+          <label class="btn btn-outline-success" for="erYes">Yes</label>
+          <input type="radio" class="btn-check" name="precautions" id="erNo" value="no">
+          <label class="btn btn-outline-danger" for="erNo">No</label>
+        </div>
+      </div>
+      <div class="mt-3"><label class="form-label fw-semibold">Notes</label>
+        <textarea name="notes" id="erNotes" rows="3" class="form-control"></textarea></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save changes</button></div>
+  </form>
+</div></div></div>
+
+<!-- Edit Error modal -->
+<div class="modal fade" id="editErrorModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <form method="POST" id="editErrorForm">
+    <div class="modal-header"><h5 class="modal-title"><i class="bi bi-exclamation-octagon"></i> Edit Production Error</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label fw-semibold">Patch #</label>
+          <input type="text" name="batchNumber" id="eeBatch" class="form-control"></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Date</label>
+          <input type="date" name="date" id="eeDate" class="form-control"></div>
+        <div class="col-12"><label class="form-label fw-semibold">Field</label>
+          <input type="text" name="fieldLabel" id="eeField" class="form-control"></div>
+        <div class="col-12"><label class="form-label fw-semibold">Description</label>
+          <textarea name="description" id="eeDesc" rows="3" class="form-control"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save changes</button></div>
+  </form>
+</div></div></div>
+
+<script>
+  (function () {
+    var workerId = "<%= worker.id %>";
+    document.querySelectorAll('.edit-round-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var d = btn.dataset;
+        document.getElementById('editRoundForm').action = '/workers/' + workerId + '/rounds/' + d.id + '?_method=PUT';
+        document.getElementById('erDate').value = d.date || '';
+        document.getElementById('erArea').value = d.area || '';
+        document.getElementById('erNotes').value = d.notes || '';
+        document.getElementById(d.precautions === 'no' ? 'erNo' : 'erYes').checked = true;
+        new bootstrap.Modal(document.getElementById('editRoundModal')).show();
+      });
+    });
+    document.querySelectorAll('.edit-error-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var d = btn.dataset;
+        document.getElementById('editErrorForm').action = '/workers/' + workerId + '/errors/' + d.id + '?_method=PUT';
+        document.getElementById('eeBatch').value = d.batch || '';
+        document.getElementById('eeDate').value = d.date || '';
+        document.getElementById('eeField').value = d.field || '';
+        document.getElementById('eeDesc').value = d.description || '';
+        new bootstrap.Modal(document.getElementById('editErrorModal')).show();
+      });
+    });
+  })();
+</script>
+<%- include('partials/footer') %>

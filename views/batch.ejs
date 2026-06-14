@@ -310,6 +310,7 @@
 </div>
 
 <script>
+  window.__WORKERS__ = <%- JSON.stringify((typeof workers !== 'undefined' && workers) ? workers.map(function(w){return {id:w.id,name:w.name};}) : []) %>;
   /* ── Helpers ──────────────────────────────────────────────────────────────── */
   function escapeHtml(value) {
     return String(value ?? '')
@@ -397,6 +398,13 @@
               + '><option value="">— Select —</option>';
         f.options.forEach(function(o) {
           html += '<option value="' + escapeHtml(o) + '">' + escapeHtml(o) + '</option>';
+        });
+        html += '</select>';
+      } else if (f.type === 'worker') {
+        html += '<select class="form-select" name="' + escapeHtml(inputName) + '" ' + req
+              + '><option value="">— Select worker —</option>';
+        (window.__WORKERS__ || []).forEach(function(w) {
+          html += '<option value="' + escapeHtml(w.name) + '">' + escapeHtml(w.name) + '</option>';
         });
         html += '</select>';
       } else {
@@ -488,6 +496,18 @@
       html += '<textarea class="form-control custom-field-input" rows="3"'
             + ' data-field-key="' + escapeHtml(key) + '"' + required + '>'
             + escapeHtml(value) + '</textarea>';
+    } else if (type === 'worker') {
+      var wopts = (window.__WORKERS__ || []).map(function(w){ return w.name; });
+      if (value && wopts.indexOf(value) === -1) wopts.unshift(value);
+      html += '<select class="form-select custom-field-input"'
+            + ' data-field-key="' + escapeHtml(key) + '"' + required + '>'
+            + '<option value="">— Select worker —</option>';
+      wopts.forEach(function(option) {
+        var selected = String(option) === value ? ' selected' : '';
+        html += '<option value="' + escapeHtml(option) + '"' + selected + '>'
+              + escapeHtml(option) + '</option>';
+      });
+      html += '</select>';
     } else {
       html += '<input type="text" class="form-control custom-field-input"'
             + ' data-field-key="' + escapeHtml(key) + '"'

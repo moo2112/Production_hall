@@ -22,7 +22,8 @@
     "express-validator": "^7.0.1",
     "firebase": "^12.10.0",
     "firebase-admin": "^11.11.0",
-    "method-override": "^3.0.0"
+    "method-override": "^3.0.0",
+    "pdfkit": "^0.15.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

@@ -1,0 +1,35 @@
+<%- include('partials/header') %>
+<div class="row justify-content-center"><div class="col-lg-8">
+  <a href="/workers" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Back to Production Room Quality</a>
+  <h2 class="fw-bold mt-2 mb-4"><i class="bi bi-clipboard-check text-success"></i> Record Quality Round</h2>
+  <% if (error) { %><div class="alert alert-danger"><%= error %></div><% } %>
+  <div class="card shadow-sm"><div class="card-body">
+    <form method="POST" action="/workers/quality">
+      <div class="mb-3"><label class="form-label fw-semibold">Worker <span class="text-danger">*</span></label>
+        <select name="workerId" class="form-select" required>
+          <option value="">— Choose worker —</option>
+          <% (workers||[]).forEach(function(w){ %><option value="<%= w.id %>"><%= w.name %><%= w.role? ' ('+w.role+')':'' %></option><% }); %>
+        </select>
+        <% if (!workers || !workers.length) { %><div class="form-text text-danger">No workers yet — add one first.</div><% } %>
+      </div>
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label fw-semibold">Date</label>
+          <input type="date" name="date" class="form-control" value="<%= new Date().toISOString().slice(0,10) %>"></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Area / Line</label>
+          <input type="text" name="area" class="form-control" placeholder="e.g. Filling line 2"></div>
+      </div>
+      <div class="mb-3 mt-3"><label class="form-label fw-semibold d-block">Did the worker take precautions? <span class="text-danger">*</span></label>
+        <div class="btn-group" role="group">
+          <input type="radio" class="btn-check" name="precautions" id="precYes" value="yes" checked>
+          <label class="btn btn-outline-success" for="precYes"><i class="bi bi-check-circle"></i> Yes</label>
+          <input type="radio" class="btn-check" name="precautions" id="precNo" value="no">
+          <label class="btn btn-outline-danger" for="precNo"><i class="bi bi-x-circle"></i> No</label>
+        </div>
+      </div>
+      <div class="mb-3"><label class="form-label fw-semibold">Notes</label>
+        <textarea name="notes" rows="3" class="form-control" placeholder="What was observed?"></textarea></div>
+      <button type="submit" class="btn btn-success"><i class="bi bi-save"></i> Record Round</button>
+    </form>
+  </div></div>
+</div></div>
+<%- include('partials/footer') %>
