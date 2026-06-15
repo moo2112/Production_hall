@@ -93,20 +93,65 @@
           <% }); %>
         </tbody>
       </table></div>
-      <p class="text-muted small"><i class="bi bi-info-circle"></i> A field answer may be a worker's name (e.g. who filled the bottles). Pick that worker below to record the error in their profile.</p>
+      <% if (batchWorkers && batchWorkers.length) { %>
+        <p class="text-muted small mb-2"><i class="bi bi-people"></i> These workers made this patch (their names are recorded in its field answers). Pick whose profile the error belongs to.</p>
+      <% } else { %>
+        <p class="text-muted small"><i class="bi bi-info-circle"></i> No worker names were detected in this patch's answers. Choose a worker manually below to record the error in their profile.</p>
+      <% } %>
 
-      <form method="POST" action="/workers/errors">
+      <form method="POST" action="/workers/errors" id="errorForm">
         <input type="hidden" name="batchNumber" value="<%= batch.batchNumber %>">
         <input type="hidden" name="batchId" value="<%= batch.id %>">
-        <div class="row g-3">
-          <div class="col-md-6"><label class="form-label fw-semibold">Assign to worker <span class="text-danger">*</span></label>
+        <input type="hidden" name="fieldValue" id="selWorkerName" value="">
+
+        <% if (batchWorkers && batchWorkers.length) { %>
+          <label class="form-label fw-semibold">Workers who made this patch <span class="text-danger">*</span></label>
+          <div class="row g-2 mb-2">
+            <% batchWorkers.forEach(function(bw){ %>
+              <div class="col-md-6">
+                <label class="d-block border rounded p-2 h-100 worker-pick" style="cursor:pointer">
+                  <div class="d-flex align-items-start">
+                    <input class="form-check-input me-2 mt-1 worker-radio" type="radio" name="workerId"
+                           value="<%= bw.id %>" data-name="<%= bw.name %>" data-field="<%= bw.fieldLabel %>" required>
+                    <div class="flex-grow-1">
+                      <div class="fw-semibold"><%= bw.name %><% if (bw.role) { %> <small class="text-muted fw-normal">· <%= bw.role %></small><% } %></div>
+                      <div class="small text-muted">From field: <span class="fw-semibold"><%= bw.fieldLabel %></span></div>
+                      <div class="small text-muted">
+                        <i class="bi bi-exclamation-octagon"></i> <%= bw.errorsCount %> error(s)
+                        · <i class="bi bi-box-seam"></i> <%= bw.batchesCount %> patch(es)
+                        · <i class="bi bi-clipboard-check"></i> <%= bw.roundsCount %> round(s)
+                      </div>
+                      <a href="/workers/<%= bw.id %>" target="_blank" class="small text-decoration-none">
+                        <i class="bi bi-box-arrow-up-right"></i> View profile
+                      </a>
+                    </div>
+                  </div>
+                </label>
+              </div>
+            <% }); %>
+          </div>
+          <!-- hidden radio that the fallback select drives -->
+          <input type="radio" name="workerId" id="otherWorkerRadio" value="" class="d-none">
+          <details class="mb-3">
+            <summary class="small text-muted" style="cursor:pointer">Assign to a different worker instead</summary>
+            <select id="otherWorker" class="form-select mt-2">
+              <option value="">— Choose any worker —</option>
+              <% (workers||[]).forEach(function(w){ %><option value="<%= w.id %>" data-name="<%= w.name %>"><%= w.name %></option><% }); %>
+            </select>
+          </details>
+        <% } else { %>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Assign to worker <span class="text-danger">*</span></label>
             <select name="workerId" class="form-select" required>
               <option value="">— Choose worker —</option>
               <% (workers||[]).forEach(function(w){ %><option value="<%= w.id %>"><%= w.name %></option><% }); %>
             </select>
           </div>
+        <% } %>
+
+        <div class="row g-3">
           <div class="col-md-6"><label class="form-label fw-semibold">Related field (optional)</label>
-            <select name="fieldLabel" class="form-select">
+            <select name="fieldLabel" id="fieldLabelSel" class="form-select">
               <option value="">— None —</option>
               <% batchFields.forEach(function(f){ %><option value="<%= f.label %>"><%= f.label %></option><% }); %>
             </select>
@@ -118,6 +163,47 @@
         </div>
         <button type="submit" class="btn btn-warning mt-3"><i class="bi bi-save"></i> Record error in worker profile</button>
       </form>
+
+      <script>
+        (function () {
+          var form = document.getElementById('errorForm');
+          if (!form) return;
+          var selName = document.getElementById('selWorkerName');
+          var fieldSel = document.getElementById('fieldLabelSel');
+          var otherSel = document.getElementById('otherWorker');
+          var otherRadio = document.getElementById('otherWorkerRadio');
+
+          function setRelatedField(label) {
+            if (!fieldSel || !label) return;
+            for (var i = 0; i < fieldSel.options.length; i++) {
+              if (fieldSel.options[i].value === label) { fieldSel.selectedIndex = i; break; }
+            }
+          }
+
+          form.querySelectorAll('.worker-radio').forEach(function (r) {
+            r.addEventListener('change', function () {
+              if (!r.checked) return;
+              if (selName) selName.value = r.dataset.name || '';
+              setRelatedField(r.dataset.field || '');
+              if (otherSel) otherSel.value = '';
+            });
+          });
+
+          if (otherSel && otherRadio) {
+            otherSel.addEventListener('change', function () {
+              var opt = otherSel.options[otherSel.selectedIndex];
+              if (otherSel.value) {
+                otherRadio.value = otherSel.value;
+                otherRadio.checked = true;
+                if (selName) selName.value = opt ? (opt.dataset.name || '') : '';
+              } else {
+                otherRadio.checked = false;
+                otherRadio.value = '';
+              }
+            });
+          }
+        })();
+      </script>
     </div></div>
   <% } %>
 </div></div>

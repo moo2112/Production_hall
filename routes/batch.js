@@ -6,7 +6,7 @@
 // const SecondaryProduct = require("../models/secondaryProduct");
 // const TertiaryProduct = require("../models/tertiaryProduct");
 // const ActivityLog = require("../models/activityLog");
-const Worker = require("../models/worker");
+// const Worker = require("../models/worker");
 
 // function toNumber(value, fallback = 0) {
 //   const parsed = parseFloat(value);
@@ -377,6 +377,34 @@ const PrimaryProduct = require("../models/primaryProduct");
 const SecondaryProduct = require("../models/secondaryProduct");
 const TertiaryProduct = require("../models/tertiaryProduct");
 const ActivityLog = require("../models/activityLog");
+const Worker = require("../models/worker");
+const { extractWorkerNames } = require("../utils/batchWorkers");
+
+/**
+ * Link a freshly-created batch into the profile of every worker whose name was
+ * chosen as a field answer. Best-effort: never blocks/breaks batch creation.
+ */
+async function linkBatchToWorkers(batch, template) {
+  try {
+    const matches = extractWorkerNames(batch, template);
+    for (const m of matches) {
+      try {
+        const worker = await Worker.findOrCreateByName(m.name);
+        await Worker.addBatchMade(worker.id, {
+          batchId: batch.id || null,
+          batchNumber: batch.batchNumber,
+          itemName: batch.itemName,
+          fieldKey: m.fieldKey,
+          fieldLabel: m.fieldLabel,
+        });
+      } catch (inner) {
+        console.error("linkBatchToWorkers (one worker) failed:", inner.message);
+      }
+    }
+  } catch (error) {
+    console.error("linkBatchToWorkers failed:", error.message);
+  }
+}
 
 function toNumber(value, fallback = 0) {
   const parsed = parseFloat(value);
@@ -632,8 +660,19 @@ router.post("/", async (req, res) => {
     } = req.body;
     const fieldValues = {};
     for (const key of Object.keys(req.body)) {
-      if (key.startsWith("field_"))
-        fieldValues[normalizeFieldKey(key)] = req.body[key];
+      if (key.startsWith("field_")) {
+        let val = req.body[key];
+        // A field may now hold several workers (multi-select / "add another").
+        // bodyParser gives an array for repeated names — join with the Arabic
+        // comma so extractWorkerNames() can split them back apart later.
+        if (Array.isArray(val)) {
+          val = val
+            .map((v) => String(v == null ? "" : v).trim())
+            .filter(Boolean)
+            .join("، ");
+        }
+        fieldValues[normalizeFieldKey(key)] = val;
+      }
     }
     const errors = Batch.validate({ batchNumber, itemId });
     if (errors.length > 0) {
@@ -653,7 +692,7 @@ router.post("/", async (req, res) => {
         success: null,
       });
     }
-    await Batch.create({
+    const createdBatch = await Batch.create({
       batchNumber,
       itemId,
       itemName,
@@ -662,6 +701,21 @@ router.post("/", async (req, res) => {
       formTemplateName,
       fieldValues,
     });
+
+    // Record this batch in the profile of every worker chosen as a field answer.
+    let template = null;
+    if (formTemplateId) {
+      try {
+        template = await FormTemplate.getById(formTemplateId);
+      } catch (_) {
+        template = null;
+      }
+    }
+    await linkBatchToWorkers(
+      { ...createdBatch, fieldValues, batchNumber, itemName },
+      template,
+    );
+
     await ActivityLog.log({
       action: "Batch Created",
       itemName,

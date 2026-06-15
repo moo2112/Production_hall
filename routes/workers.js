@@ -5,6 +5,8 @@ const Worker = require("../models/worker");
 const Batch = require("../models/batch");
 const FormTemplate = require("../models/formTemplate");
 const ActivityLog = require("../models/activityLog");
+const { uniqueWorkerNames } = require("../utils/batchWorkers");
+const { unifyNamesWithAI } = require("../utils/aiUnify");
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 
@@ -77,6 +79,48 @@ async function buildBatchFields(batch) {
     if (!used.has(norm(k))) out.push({ label: humanize(k), value: v || "" });
   });
 
+  return out;
+}
+
+/**
+ * Given a batch, return the profiles of the workers whose names appear as field
+ * answers — i.e. the workers that "made" this patch. Self-heals by creating a
+ * profile for any name that doesn't have one yet (so it can still be selected).
+ * Returns [{ id, name, role, fieldKey, fieldLabel, errorsCount, roundsCount, batchesCount }].
+ */
+async function buildBatchWorkers(batch) {
+  let template = null;
+  if (batch.formTemplateId) {
+    try {
+      template = await FormTemplate.getById(batch.formTemplateId);
+    } catch (_) {
+      template = null;
+    }
+  }
+
+  const matches = uniqueWorkerNames(batch, template);
+  const out = [];
+  for (const m of matches) {
+    try {
+      const w = await Worker.findOrCreateByName(m.name);
+      out.push({
+        id: w.id,
+        name: w.name,
+        role: w.role || "",
+        fieldKey: m.fieldKey,
+        fieldLabel: m.fieldLabel,
+        errorsCount: Array.isArray(w.productionErrors)
+          ? w.productionErrors.length
+          : 0,
+        roundsCount: Array.isArray(w.qualityRounds)
+          ? w.qualityRounds.length
+          : 0,
+        batchesCount: Array.isArray(w.batchesMade) ? w.batchesMade.length : 0,
+      });
+    } catch (err) {
+      console.error("buildBatchWorkers (one worker) failed:", err.message);
+    }
+  }
   return out;
 }
 
@@ -291,7 +335,7 @@ router.get("/", async (req, res) => {
     res.render("workers", {
       title: "Production Room Quality",
       workers,
-      error: null,
+      error: req.query.uniErr || null,
       success: req.query.success || null,
     });
   } catch (error) {
@@ -389,11 +433,16 @@ router.get("/errors", async (req, res) => {
     const batchNumber = (req.query.batchNumber || "").trim();
     let batch = null;
     let batchFields = [];
+    let batchWorkers = [];
     let lookupError = null;
     if (batchNumber) {
       batch = await Batch.getByNumber(batchNumber);
-      if (batch) batchFields = await buildBatchFields(batch);
-      else lookupError = `No patch found with number "${batchNumber}"`;
+      if (batch) {
+        batchFields = await buildBatchFields(batch);
+        batchWorkers = await buildBatchWorkers(batch);
+      } else {
+        lookupError = `No patch found with number "${batchNumber}"`;
+      }
     }
     res.render("errors", {
       title: "Record Production Error",
@@ -402,6 +451,7 @@ router.get("/errors", async (req, res) => {
       batchNumber,
       batch,
       batchFields,
+      batchWorkers,
       lookupError,
       error: null,
       success: req.query.success || null,
@@ -414,6 +464,7 @@ router.get("/errors", async (req, res) => {
       batchNumber: "",
       batch: null,
       batchFields: [],
+      batchWorkers: [],
       lookupError: null,
       error: error.message,
       success: null,
@@ -460,10 +511,102 @@ router.post("/errors", async (req, res) => {
       batchNumber: req.body.batchNumber || "",
       batch: null,
       batchFields: [],
+      batchWorkers: [],
       lookupError: null,
       error: error.message,
       success: null,
     });
+  }
+});
+
+// ── AI name unification ───────────────────────────────────────────────────
+// (defined before "/:id" so the path isn't swallowed by the id route)
+router.get("/unify", (req, res) => res.redirect("/workers"));
+
+router.post("/unify", async (req, res) => {
+  try {
+    const apiKey = (req.body.apiKey || "").trim();
+    const model = (req.body.model || "").trim();
+    if (!apiKey) throw new Error("Please enter your OpenAI API key");
+
+    const workers = await Worker.getAll();
+    if (workers.length < 2) {
+      return res.redirect(
+        "/workers?success=" +
+          encodeURIComponent("Nothing to unify — fewer than 2 profiles."),
+      );
+    }
+
+    // Unique names → ask the AI to cluster same-person variants
+    const names = workers.map((w) => w.name).filter(Boolean);
+    const { clusters } = await unifyNamesWithAI({ apiKey, model, names });
+
+    // index workers by lower-cased name for quick lookup
+    const byName = new Map();
+    workers.forEach((w) => byName.set(String(w.name || "").toLowerCase(), w));
+
+    let groupsMerged = 0;
+    let profilesDeleted = 0;
+    const examples = [];
+
+    for (const cluster of clusters) {
+      const memberWorkers = cluster.members
+        .map((m) => byName.get(String(m).toLowerCase()))
+        .filter(Boolean);
+      // unique by id
+      const seen = new Set();
+      const uniqueMembers = memberWorkers.filter((w) => {
+        if (seen.has(w.id)) return false;
+        seen.add(w.id);
+        return true;
+      });
+      if (uniqueMembers.length < 2) continue; // nothing to merge
+
+      // choose canonical worker: one matching the canonical name, else the one
+      // with the most recorded data, else the first.
+      const canonName = String(cluster.canonical || "").toLowerCase();
+      let canonical =
+        uniqueMembers.find(
+          (w) => String(w.name || "").toLowerCase() === canonName,
+        ) ||
+        uniqueMembers
+          .slice()
+          .sort(
+            (a, b) =>
+              (b.batchesMade || []).length +
+              (b.productionErrors || []).length +
+              (b.qualityRounds || []).length -
+              ((a.batchesMade || []).length +
+                (a.productionErrors || []).length +
+                (a.qualityRounds || []).length),
+          )[0];
+
+      const duplicateIds = uniqueMembers
+        .filter((w) => w.id !== canonical.id)
+        .map((w) => w.id);
+
+      await Worker.mergeWorkers(canonical.id, duplicateIds, cluster.canonical);
+      groupsMerged += 1;
+      profilesDeleted += duplicateIds.length;
+      if (examples.length < 4) {
+        examples.push(
+          `${cluster.canonical} ← ${uniqueMembers
+            .map((w) => w.name)
+            .filter((n) => n !== cluster.canonical)
+            .join(", ")}`,
+        );
+      }
+    }
+
+    const msg =
+      groupsMerged === 0
+        ? "AI found no duplicate names to merge — every worker already has one profile."
+        : `AI unify complete: merged ${groupsMerged} name group(s), removed ${profilesDeleted} duplicate profile(s).` +
+          (examples.length ? " e.g. " + examples.join("; ") : "");
+
+    res.redirect("/workers?success=" + encodeURIComponent(msg));
+  } catch (error) {
+    res.redirect("/workers?uniErr=" + encodeURIComponent(error.message));
   }
 });
 

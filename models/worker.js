@@ -10,6 +10,7 @@ const { db } = require("../config/firebase");
  *   role:            string
  *   qualityRounds:   [ { id, date, area, precautions: 'yes'|'no', notes, recordedAt } ]
  *   productionErrors:[ { id, batchNumber, batchId, fieldLabel, fieldValue, description, date, recordedAt } ]
+ *   batchesMade:     [ { batchId, batchNumber, itemName, fieldKey, fieldLabel, recordedAt } ]
  *   createdAt, updatedAt: Date
  * }
  */
@@ -32,6 +33,8 @@ class Worker {
         role: String(data.role || "").trim(),
         qualityRounds: [],
         productionErrors: [],
+        batchesMade: [],
+        aliases: Array.isArray(data.aliases) ? data.aliases : [],
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -65,7 +68,12 @@ class Worker {
     }
   }
 
-  /** Find a worker by (case-insensitive) name. Returns the first match or null. */
+  /**
+   * Find a worker by (case-insensitive) name OR any of its aliases. Aliases are
+   * the alternative spellings/transliterations merged in by the AI unify step,
+   * so every old name variant still resolves to the single canonical profile.
+   * Returns the first match or null.
+   */
   static async getByName(name) {
     try {
       const target = String(name || "")
@@ -74,7 +82,11 @@ class Worker {
       if (!target) return null;
       const all = await this.getAll();
       return (
-        all.find((w) => String(w.name || "").toLowerCase() === target) || null
+        all.find((w) => {
+          if (String(w.name || "").toLowerCase() === target) return true;
+          const aliases = Array.isArray(w.aliases) ? w.aliases : [];
+          return aliases.some((a) => String(a || "").toLowerCase() === target);
+        }) || null
       );
     } catch (error) {
       throw new Error(`Error finding worker by name: ${error.message}`);
@@ -263,6 +275,147 @@ class Worker {
       return entry;
     } catch (err) {
       throw new Error(`Error recording production error: ${err.message}`);
+    }
+  }
+
+  /**
+   * Find a worker by name (case-insensitive) or create one if missing.
+   * Used when recording a batch (the chosen names already exist as profiles)
+   * and by the startup migration (which back-fills missing profiles).
+   */
+  static async findOrCreateByName(name, role = "") {
+    const clean = String(name || "").trim();
+    if (!clean) throw new Error("Worker name is required");
+    const existing = await this.getByName(clean);
+    if (existing) return existing;
+    return await this.create({ name: clean, role });
+  }
+
+  /**
+   * Record that a worker made / participated in a batch. Idempotent: a given
+   * (batchId, fieldKey) pair is only stored once per worker.
+   * @param {string} id        Worker document id
+   * @param {Object} batchInfo { batchId, batchNumber, itemName, fieldKey, fieldLabel }
+   */
+  static async addBatchMade(id, batchInfo) {
+    try {
+      const worker = await this.getById(id);
+      if (!worker) throw new Error("Worker not found");
+      const list = Array.isArray(worker.batchesMade) ? worker.batchesMade : [];
+
+      const batchId = batchInfo.batchId || null;
+      const fieldKey = String(batchInfo.fieldKey || "").trim();
+      const already = list.some(
+        (b) =>
+          (b.batchId || null) === batchId &&
+          String(b.fieldKey || "").trim() === fieldKey,
+      );
+      if (already) return worker.batchesMade;
+
+      list.push({
+        batchId,
+        batchNumber: String(batchInfo.batchNumber || "").trim(),
+        itemName: String(batchInfo.itemName || "").trim(),
+        fieldKey,
+        fieldLabel: String(batchInfo.fieldLabel || "").trim(),
+        recordedAt: new Date().toISOString(),
+      });
+
+      await db.collection(this.collectionName).doc(id).update({
+        batchesMade: list,
+        updatedAt: new Date(),
+      });
+      return list;
+    } catch (error) {
+      throw new Error(`Error recording batch for worker: ${error.message}`);
+    }
+  }
+
+  /** Replace a worker's whole batchesMade list (used by the migration rebuild). */
+  static async setBatchesMade(id, list) {
+    try {
+      await db
+        .collection(this.collectionName)
+        .doc(id)
+        .update({
+          batchesMade: Array.isArray(list) ? list : [],
+          updatedAt: new Date(),
+        });
+      return true;
+    } catch (error) {
+      throw new Error(`Error setting batches made: ${error.message}`);
+    }
+  }
+
+  /**
+   * Merge several duplicate worker profiles into one canonical profile, then
+   * delete the duplicates. Combines batchesMade / qualityRounds /
+   * productionErrors (de-duplicated) and records every merged-away name as an
+   * alias so old name variants still resolve to this profile.
+   *
+   * @param {string}   canonicalId   id of the profile to keep
+   * @param {string[]} duplicateIds  ids of the profiles to merge in and delete
+   * @param {string}   [canonicalName] optional preferred display name
+   * @returns {Object} the updated canonical worker
+   */
+  static async mergeWorkers(canonicalId, duplicateIds, canonicalName) {
+    try {
+      const canonical = await this.getById(canonicalId);
+      if (!canonical) throw new Error("Canonical worker not found");
+
+      const dups = [];
+      for (const dId of duplicateIds || []) {
+        if (dId === canonicalId) continue;
+        const d = await this.getById(dId);
+        if (d) dups.push(d);
+      }
+
+      const batchesMade = [...(canonical.batchesMade || [])];
+      const qualityRounds = [...(canonical.qualityRounds || [])];
+      const productionErrors = [...(canonical.productionErrors || [])];
+      const aliasSet = new Set((canonical.aliases || []).map((a) => String(a)));
+
+      const batchSig = new Set(
+        batchesMade.map((b) => (b.batchId || "") + "|" + (b.fieldKey || "")),
+      );
+
+      dups.forEach((d) => {
+        // remember the duplicate's name + its aliases as aliases of canonical
+        if (d.name && d.name !== canonical.name) aliasSet.add(d.name);
+        (d.aliases || []).forEach((a) => {
+          if (a && a !== canonical.name) aliasSet.add(String(a));
+        });
+        (d.batchesMade || []).forEach((b) => {
+          const sig = (b.batchId || "") + "|" + (b.fieldKey || "");
+          if (batchSig.has(sig)) return;
+          batchSig.add(sig);
+          batchesMade.push(b);
+        });
+        (d.qualityRounds || []).forEach((r) => qualityRounds.push(r));
+        (d.productionErrors || []).forEach((e) => productionErrors.push(e));
+      });
+
+      const patch = {
+        batchesMade,
+        qualityRounds,
+        productionErrors,
+        aliases: Array.from(aliasSet),
+        updatedAt: new Date(),
+      };
+      if (canonicalName && String(canonicalName).trim()) {
+        patch.name = String(canonicalName).trim();
+      }
+
+      await db.collection(this.collectionName).doc(canonicalId).update(patch);
+
+      // delete the merged-away duplicates
+      for (const d of dups) {
+        await db.collection(this.collectionName).doc(d.id).delete();
+      }
+
+      return await this.getById(canonicalId);
+    } catch (error) {
+      throw new Error(`Error merging workers: ${error.message}`);
     }
   }
 

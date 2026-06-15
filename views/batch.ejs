@@ -312,6 +312,28 @@
 <script>
   window.__WORKERS__ = <%- JSON.stringify((typeof workers !== 'undefined' && workers) ? workers.map(function(w){return {id:w.id,name:w.name};}) : []) %>;
   /* ── Helpers ──────────────────────────────────────────────────────────────── */
+  // Clone a worker dropdown so several workers can be recorded for one task.
+  function addWorkerSelect(btn) {
+    var wrap = btn.closest('.worker-multi-wrap');
+    if (!wrap) return;
+    var opts = wrap.querySelector('.worker-options');
+    var first = opts.querySelector('select');
+    if (!first) return;
+    var row = document.createElement('div');
+    row.className = 'd-flex gap-1 mb-1 align-items-center';
+    var clone = first.cloneNode(true);
+    clone.selectedIndex = 0;
+    clone.removeAttribute('required'); // only the first one is required
+    clone.classList.remove('mb-1');
+    var rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'btn btn-sm btn-outline-danger';
+    rm.innerHTML = '<i class="bi bi-x"></i>';
+    rm.onclick = function () { row.remove(); };
+    row.appendChild(clone);
+    row.appendChild(rm);
+    opts.appendChild(row);
+  }
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -384,7 +406,7 @@
       html += '<div class="col-md-6"><label class="form-label fw-semibold">'
             + escapeHtml(f.label) + ' ' + reqMark + '</label>';
 
-      if (f.type === 'text' || f.type === 'notes') {
+      if (f.type === 'notes') {
         html += '<input type="text" class="form-control" name="' + escapeHtml(inputName)
               + '" placeholder="' + escapeHtml(f.label) + '" ' + req + '>';
       } else if (f.type === 'number') {
@@ -400,13 +422,28 @@
           html += '<option value="' + escapeHtml(o) + '">' + escapeHtml(o) + '</option>';
         });
         html += '</select>';
-      } else if (f.type === 'worker') {
-        html += '<select class="form-select" name="' + escapeHtml(inputName) + '" ' + req
-              + '><option value="">— Select worker —</option>';
-        (window.__WORKERS__ || []).forEach(function(w) {
-          html += '<option value="' + escapeHtml(w.name) + '">' + escapeHtml(w.name) + '</option>';
-        });
-        html += '</select>';
+      } else if (f.type === 'text' || f.type === 'worker') {
+        // Text answers are chosen from existing worker profiles (not free-typed).
+        // Several workers can be recorded for the same task via "Add another worker".
+        var workers = window.__WORKERS__ || [];
+        if (workers.length) {
+          var optionsHtml = '<option value="">— Select worker —</option>';
+          workers.forEach(function(w) {
+            optionsHtml += '<option value="' + escapeHtml(w.name) + '">' + escapeHtml(w.name) + '</option>';
+          });
+          html += '<div class="worker-multi-wrap">'
+                + '<div class="worker-options">'
+                + '<select class="form-select mb-1" name="' + escapeHtml(inputName) + '" ' + req + '>'
+                + optionsHtml + '</select>'
+                + '</div>'
+                + '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="addWorkerSelect(this)">'
+                + '<i class="bi bi-person-plus"></i> Add another worker</button>'
+                + '</div>';
+        } else {
+          // No worker profiles yet — fall back to a plain input so the form still works.
+          html += '<input type="text" class="form-control" name="' + escapeHtml(inputName)
+                + '" placeholder="No worker profiles yet — type a name" ' + req + '>';
+        }
       } else {
         html += '<input type="text" class="form-control" name="' + escapeHtml(inputName)
               + '" ' + req + '>';

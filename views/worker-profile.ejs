@@ -1,5 +1,5 @@
 <%- include('partials/header') %>
-<% var rounds=(worker.qualityRounds||[]); var errs=(worker.productionErrors||[]); %>
+<% var rounds=(worker.qualityRounds||[]); var errs=(worker.productionErrors||[]); var made=(worker.batchesMade||[]); %>
 <div class="row"><div class="col-12">
   <a href="/workers" class="text-decoration-none no-print"><i class="bi bi-arrow-left"></i> Back to Production Room Quality</a>
   <% if (success) { %><div class="alert alert-success mt-2 no-print"><i class="bi bi-check-circle"></i> <%= success %></div><% } %>
@@ -9,7 +9,11 @@
       <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center me-3" style="width:60px;height:60px;font-size:1.6rem;font-weight:700">
         <%= (worker.name||'?').trim().charAt(0).toUpperCase() %>
       </div>
-      <div><h2 class="fw-bold mb-0"><%= worker.name %></h2><div class="text-muted"><%= worker.role || 'Worker' %></div></div>
+      <div><h2 class="fw-bold mb-0"><%= worker.name %></h2><div class="text-muted"><%= worker.role || 'Worker' %></div>
+        <% var aliases=(worker.aliases||[]); if (aliases.length) { %>
+          <div class="small text-muted mt-1"><i class="bi bi-magic"></i> Also recorded as: <%= aliases.join('، ') %></div>
+        <% } %>
+      </div>
     </div>
     <div class="d-flex gap-2 no-print flex-wrap">
       <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editWorkerModal"><i class="bi bi-pencil"></i> Edit worker</button>
@@ -20,6 +24,28 @@
       </form>
     </div>
   </div>
+
+  <div class="d-flex justify-content-between align-items-center mt-4">
+    <h5 class="fw-bold mb-0"><i class="bi bi-box-seam text-purple"></i> Batches Made (<%= made.length %>)</h5>
+  </div>
+  <div class="table-responsive mt-2"><table class="table table-bordered align-middle">
+    <thead class="table-light"><tr><th>Patch #</th><th>Item</th><th>Recorded as field</th><th>Recorded at</th></tr></thead>
+    <tbody>
+      <% if (!made.length) { %><tr><td colspan="4" class="text-center text-muted">No batches recorded for this worker yet.</td></tr><% } %>
+      <% made.forEach(function(b){ %>
+        <tr>
+          <td>
+            <a href="/workers/errors?batchNumber=<%= encodeURIComponent(b.batchNumber || '') %>" class="text-decoration-none fw-semibold">
+              <%= b.batchNumber || '—' %>
+            </a>
+          </td>
+          <td><%= b.itemName || '—' %></td>
+          <td><%= b.fieldLabel || '—' %></td>
+          <td class="text-muted small"><%= fmtDate(b.recordedAt) %></td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table></div>
 
   <div class="d-flex justify-content-between align-items-center mt-4">
     <h5 class="fw-bold mb-0"><i class="bi bi-clipboard-check text-success"></i> Quality Precaution Rounds</h5>

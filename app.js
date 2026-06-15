@@ -70,6 +70,12 @@ const PORT = process.env.PORT || 3000;
 // ── Firebase health check ─────────────────────────────────────────────────────
 const { db } = require("./config/firebase");
 
+// ── One-time data migration: back-fill worker profiles from old patches ───────
+// Scans existing batches, creates profiles for any worker names that don't have
+// one yet, and rebuilds each worker's "batches made" list. Idempotent + safe.
+const { runWorkerMigrationOnce } = require("./migrations/migrateWorkers");
+runWorkerMigrationOnce();
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -105,18 +111,41 @@ app.use("/workers", workersRoutes);
 
 // ── Error handlers ────────────────────────────────────────────────────────────
 app.use((req, res) => {
-  res.status(404).render("error", {
-    title: "Page Not Found",
-    message: "The page you are looking for does not exist.",
-  });
+  res.status(404).render(
+    "error",
+    {
+      title: "Page Not Found",
+      message: "The page you are looking for does not exist.",
+    },
+    (err, html) => {
+      if (err) return res.status(404).send("404 — Page not found.");
+      res.send(html);
+    },
+  );
 });
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).render("error", {
-    title: "Server Error",
-    message: "Something went wrong on the server.",
-  });
+  res.status(500).render(
+    "error",
+    {
+      title: "Server Error",
+      message:
+        err && err.message
+          ? err.message
+          : "Something went wrong on the server.",
+    },
+    (renderErr, html) => {
+      if (renderErr) {
+        return res
+          .status(500)
+          .send(
+            "Server error: " + (err && err.message ? err.message : "unknown"),
+          );
+      }
+      res.send(html);
+    },
+  );
 });
 
 // ── Start server (local only — Vercel handles this itself) ────────────────────
