@@ -39,6 +39,8 @@ class Worker {
         updatedAt: new Date(),
       };
       const docRef = await db.collection(this.collectionName).add(payload);
+      // explicit creation overrides any prior tombstone for this name
+      await this.removeSuppressedNames([payload.name]);
       return { id: docRef.id, ...payload };
     } catch (error) {
       throw new Error(`Error creating worker: ${error.message}`);
@@ -282,12 +284,18 @@ class Worker {
    * Find a worker by name (case-insensitive) or create one if missing.
    * Used when recording a batch (the chosen names already exist as profiles)
    * and by the startup migration (which back-fills missing profiles).
+   *
+   * @param {Set<string>} [suppressed]  optional pre-loaded set of suppressed
+   *   (deleted) lower-cased names. If the name is suppressed, returns null
+   *   instead of recreating the profile.
    */
-  static async findOrCreateByName(name, role = "") {
+  static async findOrCreateByName(name, role = "", suppressed = null) {
     const clean = String(name || "").trim();
     if (!clean) throw new Error("Worker name is required");
     const existing = await this.getByName(clean);
     if (existing) return existing;
+    const block = suppressed || (await this.getSuppressedNames());
+    if (block.has(clean.toLowerCase())) return null; // deleted on purpose
     return await this.create({ name: clean, role });
   }
 
@@ -416,6 +424,82 @@ class Worker {
       return await this.getById(canonicalId);
     } catch (error) {
       throw new Error(`Error merging workers: ${error.message}`);
+    }
+  }
+
+  // ── Suppression (tombstones) ───────────────────────────────────────────────
+  // When a worker is deleted, their name (and aliases) are remembered here so the
+  // startup migration and the Quality-Control page do NOT silently re-create the
+  // profile from names still stored in old patches.
+  static suppressionDocPath() {
+    return { collection: "appMeta", doc: "suppressedNames" };
+  }
+
+  /** Returns a Set of suppressed names (lower-cased). */
+  static async getSuppressedNames() {
+    try {
+      const ref = this.suppressionDocPath();
+      const snap = await db.collection(ref.collection).doc(ref.doc).get();
+      const names =
+        snap.exists && Array.isArray(snap.data().names)
+          ? snap.data().names
+          : [];
+      return new Set(names.map((n) => String(n || "").toLowerCase()));
+    } catch (error) {
+      // never block on this — treat as "nothing suppressed"
+      return new Set();
+    }
+  }
+
+  static async addSuppressedNames(names) {
+    try {
+      const ref = this.suppressionDocPath();
+      const set = await this.getSuppressedNames();
+      (names || []).forEach((n) => {
+        const v = String(n || "").trim();
+        if (v) set.add(v.toLowerCase());
+      });
+      await db
+        .collection(ref.collection)
+        .doc(ref.doc)
+        .set({ names: Array.from(set), updatedAt: new Date() });
+      return true;
+    } catch (error) {
+      throw new Error(`Error suppressing names: ${error.message}`);
+    }
+  }
+
+  static async removeSuppressedNames(names) {
+    try {
+      const ref = this.suppressionDocPath();
+      const set = await this.getSuppressedNames();
+      (names || []).forEach((n) => set.delete(String(n || "").toLowerCase()));
+      await db
+        .collection(ref.collection)
+        .doc(ref.doc)
+        .set({ names: Array.from(set), updatedAt: new Date() });
+      return true;
+    } catch (error) {
+      // non-fatal
+      return false;
+    }
+  }
+
+  /**
+   * Permanently delete a worker AND remember its name/aliases so it won't be
+   * recreated from old patch data. Use this for explicit user deletions.
+   */
+  static async deleteAndSuppress(id) {
+    try {
+      const worker = await this.getById(id);
+      if (worker) {
+        const names = [worker.name, ...(worker.aliases || [])].filter(Boolean);
+        await this.addSuppressedNames(names);
+      }
+      await db.collection(this.collectionName).doc(id).delete();
+      return true;
+    } catch (error) {
+      throw new Error(`Error deleting worker: ${error.message}`);
     }
   }
 

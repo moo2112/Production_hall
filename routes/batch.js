@@ -387,9 +387,11 @@ const { extractWorkerNames } = require("../utils/batchWorkers");
 async function linkBatchToWorkers(batch, template) {
   try {
     const matches = extractWorkerNames(batch, template);
+    const suppressed = await Worker.getSuppressedNames();
     for (const m of matches) {
       try {
-        const worker = await Worker.findOrCreateByName(m.name);
+        const worker = await Worker.findOrCreateByName(m.name, "", suppressed);
+        if (!worker) continue; // deleted on purpose — don't recreate
         await Worker.addBatchMade(worker.id, {
           batchId: batch.id || null,
           batchNumber: batch.batchNumber,

@@ -60,7 +60,11 @@ async function migrateWorkerProfiles() {
   let createdProfiles = 0;
   let updatedProfiles = 0;
 
+  // Names the user has explicitly deleted — never recreate these.
+  const suppressed = await Worker.getSuppressedNames();
+
   for (const { name, batches: madeList } of byName.values()) {
+    if (suppressed.has(name.toLowerCase())) continue; // deleted on purpose
     let worker = await Worker.getByName(name);
     if (!worker) {
       worker = await Worker.create({ name, role: "" });

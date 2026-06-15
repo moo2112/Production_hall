@@ -99,10 +99,12 @@ async function buildBatchWorkers(batch) {
   }
 
   const matches = uniqueWorkerNames(batch, template);
+  const suppressed = await Worker.getSuppressedNames();
   const out = [];
   for (const m of matches) {
     try {
-      const w = await Worker.findOrCreateByName(m.name);
+      const w = await Worker.findOrCreateByName(m.name, "", suppressed);
+      if (!w) continue; // deleted on purpose — don't show or recreate
       out.push({
         id: w.id,
         name: w.name,
@@ -635,7 +637,7 @@ router.get("/:id/pdf", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     const worker = await Worker.getById(req.params.id);
-    await Worker.delete(req.params.id);
+    await Worker.deleteAndSuppress(req.params.id);
     if (worker)
       await ActivityLog.log({
         action: "Worker Deleted",
