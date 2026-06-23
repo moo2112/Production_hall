@@ -46,27 +46,83 @@ class Invoice {
     }
   }
 
-  /** Compute item line totals + subtotal/tax/total from raw items. */
+  /** Compute item line totals + subtotal/tax/total from raw items.
+   * An item may be a direct tertiary product or a BRIDGE (alias mapping to
+   * several tertiary products). Bridge items carry { bridgeId, bridgeName,
+   * components:[{productId, productName, quantity}] } and are priced as one line;
+   * they are expanded to real products only at fulfilment (see expandItems). */
   static computeTotals(rawItems, taxRate) {
     const items = (Array.isArray(rawItems) ? rawItems : [])
       .map((it) => {
         const quantity = num(it.quantity, 0);
         const unitPrice = num(it.unitPrice, 0);
-        return {
-          productId: it.productId || null,
-          productName: String(it.productName || "").trim(),
+        const base = {
+          productName: String(it.productName || it.bridgeName || "").trim(),
           quantity,
           unitPrice,
           lineTotal: round2(quantity * unitPrice),
         };
+        if (it.bridgeId) {
+          // Bridge line — keep the mapping so it can be fulfilled later.
+          base.bridgeId = it.bridgeId;
+          base.bridgeName = it.bridgeName || it.productName || "";
+          base.components = (
+            Array.isArray(it.components) ? it.components : []
+          ).map((c) => ({
+            productId: c.productId || null,
+            productName: String(c.productName || "").trim(),
+            quantity: num(c.quantity, 0),
+          }));
+          base.productId = null;
+        } else {
+          base.productId = it.productId || null;
+        }
+        return base;
       })
-      .filter((it) => it.productName !== "" && it.quantity > 0);
+      .filter(
+        (it) =>
+          it.quantity > 0 &&
+          (it.productId ||
+            (it.bridgeId && it.components && it.components.length)),
+      );
 
     const subtotal = round2(items.reduce((s, it) => s + it.lineTotal, 0));
     const rate = Math.max(0, num(taxRate, 0));
     const taxAmount = round2(subtotal * (rate / 100));
     const total = round2(subtotal + taxAmount);
     return { items, subtotal, taxRate: rate, taxAmount, total };
+  }
+
+  /**
+   * Flatten invoice items into the real tertiary products to fulfil, expanding
+   * any bridge into its components × the bridge line quantity. Used by the
+   * preparation-plan and the auto-sale on production-day completion.
+   * Returns [{ productId, productName, quantity, viaBridge }].
+   */
+  static expandItems(items) {
+    const out = [];
+    for (const it of items || []) {
+      if (it.bridgeId && Array.isArray(it.components)) {
+        const lineQty = num(it.quantity, 0);
+        for (const c of it.components) {
+          if (!c.productId) continue;
+          out.push({
+            productId: c.productId,
+            productName: c.productName,
+            quantity: round2(num(c.quantity, 0) * lineQty),
+            viaBridge: it.bridgeName || it.productName || "",
+          });
+        }
+      } else if (it.productId) {
+        out.push({
+          productId: it.productId,
+          productName: it.productName,
+          quantity: num(it.quantity, 0),
+          viaBridge: null,
+        });
+      }
+    }
+    return out;
   }
 
   static async create(data) {

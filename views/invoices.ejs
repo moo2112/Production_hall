@@ -71,11 +71,22 @@
         <input type="hidden" name="itemsJson" id="itemsJson">
         <div class="modal-body">
           <h6 class="fw-bold"><i class="bi bi-person"></i> Customer</h6>
+          <div class="row g-3 mb-2">
+            <div class="col-md-6">
+              <label class="form-label">Pick a saved client</label>
+              <select class="form-select" id="clientPicker" onchange="fillClient(this.value)">
+                <option value="">— new / manual —</option>
+              </select>
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="form-check"><input class="form-check-input" type="checkbox" name="saveClient" id="saveClient"><label class="form-check-label" for="saveClient">Save this customer for next time</label></div>
+            </div>
+          </div>
           <div class="row g-3 mb-3">
-            <div class="col-md-6"><label class="form-label">Name <span class="text-danger">*</span></label><input class="form-control" name="customerName" required></div>
-            <div class="col-md-3"><label class="form-label">Phone</label><input class="form-control" name="customerPhone"></div>
-            <div class="col-md-3"><label class="form-label">Email</label><input type="email" class="form-control" name="customerEmail"></div>
-            <div class="col-12"><label class="form-label">Address</label><input class="form-control" name="customerAddress"></div>
+            <div class="col-md-6"><label class="form-label">Name <span class="text-danger">*</span></label><input class="form-control" id="customerName" name="customerName" required></div>
+            <div class="col-md-3"><label class="form-label">Phone</label><input class="form-control" id="customerPhone" name="customerPhone"></div>
+            <div class="col-md-3"><label class="form-label">Email</label><input type="email" class="form-control" id="customerEmail" name="customerEmail"></div>
+            <div class="col-12"><label class="form-label">Address</label><input class="form-control" id="customerAddress" name="customerAddress"></div>
           </div>
 
           <h6 class="fw-bold"><i class="bi bi-box-seam"></i> Line Items</h6>
@@ -105,33 +116,68 @@
 
 <script>
 const tertiaryProducts = <%- JSON.stringify((tertiaryProducts||[]).map(p => ({ id:p.id, name:p.name }))) %>;
+const clientsData = <%- JSON.stringify(clients||[]) %>;
+const bridgesData = <%- JSON.stringify((bridges||[]).map(b => ({ id:b.id, name:b.name, items:b.items||[] }))) %>;
+
+// Populate the client picker
+document.addEventListener('DOMContentLoaded', function(){
+  const cp = document.getElementById('clientPicker');
+  if (cp) clientsData.forEach(c => { const o=document.createElement('option'); o.value=c.id; o.textContent=c.name; cp.appendChild(o); });
+});
+function fillClient(id){
+  const c = clientsData.find(x=>x.id===id);
+  document.getElementById('customerName').value = c ? c.name : '';
+  document.getElementById('customerPhone').value = c ? (c.phone||'') : '';
+  document.getElementById('customerEmail').value = c ? (c.email||'') : '';
+  document.getElementById('customerAddress').value = c ? (c.address||'') : '';
+}
 let items = [];
 
 function renderItems(){
   const c = document.getElementById('itemsContainer');
-  const opts = tertiaryProducts.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  const prodOpts = tertiaryProducts.map(p=>`<option value="prod:${p.id}">${esc(p.name)}</option>`).join('');
+  const bridgeOpts = bridgesData.map(b=>`<option value="bridge:${b.id}">${esc(b.name)} (bridge)</option>`).join('');
+  const opts = `<optgroup label="Tertiary products">${prodOpts}</optgroup>` + (bridgeOpts ? `<optgroup label="Bridges">${bridgeOpts}</optgroup>` : '');
   c.innerHTML = items.map((it,i)=>`
     <div class="row g-2 align-items-end mb-2">
       <div class="col-md-5">
         <select class="form-select form-select-sm" onchange="pickProduct(${i}, this)">
-          <option value="">— choose tertiary product * —</option>
+          <option value="">— choose product or bridge * —</option>
           ${opts}
         </select>
+        ${it.bridgeId ? `<div class="small text-muted mt-1"><i class="bi bi-link-45deg"></i> ${esc((it.components||[]).map(x=>x.quantity+'× '+x.productName).join(', '))}</div>` : ''}
       </div>
       <div class="col-md-2"><div class="input-group input-group-sm"><span class="input-group-text">Qty</span><input type="number" min="0" step="0.01" class="form-control" value="${it.quantity}" oninput="upd(${i},'quantity',this.value)"></div></div>
       <div class="col-md-3"><div class="input-group input-group-sm"><span class="input-group-text">Unit price</span><input type="number" min="0" step="0.01" class="form-control" value="${it.unitPrice}" oninput="upd(${i},'unitPrice',this.value)"></div></div>
       <div class="col-md-1 text-end small">${(Number(it.quantity)*Number(it.unitPrice)||0).toFixed(2)}</div>
       <div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="rm(${i})"><i class="bi bi-trash"></i></button></div>
     </div>`).join('');
-  // restore selected product in each row's select
-  c.querySelectorAll('select').forEach((sel, i) => { if (items[i] && items[i].productId) sel.value = items[i].productId; });
+  // restore selection in each row's select
+  c.querySelectorAll('select').forEach((sel, i) => {
+    if (!items[i]) return;
+    if (items[i].bridgeId) sel.value = 'bridge:'+items[i].bridgeId;
+    else if (items[i].productId) sel.value = 'prod:'+items[i].productId;
+  });
   recalc();
 }
 function pickProduct(i, sel){
-  const p = tertiaryProducts.find(x=>x.id===sel.value);
-  items[i].productId = sel.value || null;
-  items[i].productName = p ? p.name : '';
-  recalc();
+  const v = sel.value || '';
+  if (v.startsWith('bridge:')){
+    const b = bridgesData.find(x=>x.id===v.slice(7));
+    items[i].bridgeId = b ? b.id : null;
+    items[i].bridgeName = b ? b.name : '';
+    items[i].productName = b ? b.name : '';
+    items[i].components = b ? (b.items||[]).map(x=>({productId:x.productId,productName:x.productName,quantity:x.quantity})) : [];
+    items[i].productId = null;
+  } else if (v.startsWith('prod:')){
+    const p = tertiaryProducts.find(x=>x.id===v.slice(5));
+    items[i].productId = p ? p.id : null;
+    items[i].productName = p ? p.name : '';
+    items[i].bridgeId = null; items[i].bridgeName=''; items[i].components=null;
+  } else {
+    items[i].productId = null; items[i].bridgeId = null; items[i].components=null; items[i].productName='';
+  }
+  renderItems();
 }
 function esc(s){return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 function addItem(){ items.push({productId:null,productName:'',quantity:1,unitPrice:0}); renderItems(); }
@@ -146,8 +192,16 @@ function recalc(){
   document.getElementById('totT').textContent=(sub+tax).toFixed(2);
 }
 document.getElementById('invoiceForm').addEventListener('submit', function(e){
-  const valid = items.filter(it => it.productId && Number(it.quantity)>0);
-  if (!valid.length){ e.preventDefault(); alert('Choose at least one tertiary product with a quantity.'); return; }
+  const valid = items.filter(it => (it.productId || it.bridgeId) && Number(it.quantity)>0).map(it => ({
+    productId: it.productId || null,
+    productName: it.productName || it.bridgeName || '',
+    bridgeId: it.bridgeId || null,
+    bridgeName: it.bridgeName || '',
+    components: it.components || null,
+    quantity: it.quantity,
+    unitPrice: it.unitPrice,
+  }));
+  if (!valid.length){ e.preventDefault(); alert('Choose at least one product or bridge with a quantity.'); return; }
   document.getElementById('itemsJson').value = JSON.stringify(valid);
 });
 document.addEventListener('DOMContentLoaded', function(){ addItem(); });
@@ -185,7 +239,7 @@ async function showPlan(id){
     else html += '<div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle"></i> Some items are short — you will need to produce more before completing.</div>';
     plan.items.forEach(function(it){
       html += '<div class="border rounded p-2 mb-2">';
-      html += '<div class="fw-semibold">'+escapeP(it.productName)+' — need '+it.quantity+'</div>';
+      html += '<div class="fw-semibold">'+escapeP(it.productName)+' — need '+it.quantity+(it.viaBridge?' <span class="badge bg-warning text-dark">via '+escapeP(it.viaBridge)+'</span>':'')+'</div>';
       if (it.unlinked){ html += '<div class="small text-danger">Not linked to a recorded tertiary product — cannot auto-allocate.</div></div>'; return; }
       if (it.allocations && it.allocations.length){
         html += '<table class="table table-sm mb-1"><thead><tr><th>Take</th><th>From batch</th><th>Produced</th><th>Left in batch</th></tr></thead><tbody>';

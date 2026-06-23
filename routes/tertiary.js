@@ -182,8 +182,9 @@ router.get("/", async (req, res) => {
       priceMap,
     );
     products.forEach((p) => {
-      const c = costService.tertiaryUnitCost(p, secondaryCostMap);
+      const c = costService.tertiaryFullUnitCost(p, secondaryCostMap);
       p.unitCost = c.unitCost;
+      p.componentsCost = c.componentsCost;
       p.costMissingPrice = c.missingPrices.length > 0;
     });
     res.render("tertiary", {
@@ -209,7 +210,13 @@ router.get("/", async (req, res) => {
 // ── POST /tertiary — ENCODE only (no stock deduction) ────────────────────────
 router.post("/", async (req, res) => {
   try {
-    const { name, description, componentsJson } = req.body;
+    const {
+      name,
+      description,
+      componentsJson,
+      preparationCost,
+      packagingCost,
+    } = req.body;
     const components = parseJson(componentsJson, []);
     const errors = TertiaryProduct.validate({ name, description, components });
     if (errors.length > 0) {
@@ -233,6 +240,8 @@ router.post("/", async (req, res) => {
       quantity: 0,
       batchStock: [],
       components,
+      preparationCost: parseFloat(preparationCost) || 0,
+      packagingCost: parseFloat(packagingCost) || 0,
     });
     await ActivityLog.log({
       action: "Tertiary Product Encoded",
@@ -456,7 +465,15 @@ router.post("/:id/sell", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, quantity, damages, componentsJson } = req.body;
+    const {
+      name,
+      description,
+      quantity,
+      damages,
+      componentsJson,
+      preparationCost,
+      packagingCost,
+    } = req.body;
     const components = parseJson(componentsJson, []);
     const errors = TertiaryProduct.validate({ name, description, components });
     if (errors.length > 0)
@@ -480,6 +497,8 @@ router.put("/:id", async (req, res) => {
         quantity: newQuantity,
         damagedQuantity: currentDamaged + damagesAmt,
         components,
+        preparationCost: parseFloat(preparationCost) || 0,
+        packagingCost: parseFloat(packagingCost) || 0,
       });
     } else {
       await TertiaryProduct.update(id, {
@@ -487,6 +506,8 @@ router.put("/:id", async (req, res) => {
         description: description || "",
         quantity: newQuantity,
         components,
+        preparationCost: parseFloat(preparationCost) || 0,
+        packagingCost: parseFloat(packagingCost) || 0,
       });
     }
 

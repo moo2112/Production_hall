@@ -45,7 +45,7 @@
 // // ── POST /secondary — ENCODE only (no stock deduction) ───────────────────────
 // router.post("/", async (req, res) => {
 //   try {
-//     const { name, description, componentsJson } = req.body;
+//     const { name, description, componentsJson, preparationCost } = req.body;
 //     const components = parseJson(componentsJson, []);
 
 //     const errors = SecondaryProduct.validate({ name, description, components });
@@ -204,7 +204,7 @@
 // router.put("/:id", async (req, res) => {
 //   try {
 //     const { id } = req.params;
-//     const { name, description, quantity, damages, componentsJson } = req.body;
+//     const { name, description, quantity, damages, componentsJson, preparationCost } = req.body;
 //     const components = parseJson(componentsJson, []);
 
 //     const errors = SecondaryProduct.validate({ name, description, components });
@@ -312,7 +312,10 @@ router.get("/", async (req, res) => {
     const priceMap = costService.buildPrimaryPriceMap(primaryProducts);
     products.forEach((p) => {
       const c = costService.secondaryUnitCost(p, priceMap);
-      p.unitCost = c.unitCost;
+      p.unitCost = costService.round2(
+        (c.unitCost || 0) + (parseFloat(p.preparationCost) || 0),
+      );
+      p.materialCost = c.unitCost;
       p.costMissingPrice = c.missingPrices.length > 0;
     });
     res.render("secondary", {
@@ -364,6 +367,7 @@ router.post("/", async (req, res) => {
       quantity: 0,
       batchStock: [],
       components,
+      preparationCost: parseFloat(preparationCost) || 0,
     });
 
     await ActivityLog.log({
@@ -522,6 +526,7 @@ router.put("/:id", async (req, res) => {
         quantity: newQuantity,
         damagedQuantity: currentDamaged + damagesAmt,
         components,
+        preparationCost: parseFloat(preparationCost) || 0,
       });
     } else {
       await SecondaryProduct.update(id, {
@@ -529,6 +534,7 @@ router.put("/:id", async (req, res) => {
         description: description || "",
         quantity: newQuantity,
         components,
+        preparationCost: parseFloat(preparationCost) || 0,
       });
     }
 

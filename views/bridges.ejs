@@ -1,0 +1,100 @@
+<%- include('partials/header') %>
+<div class="row"><div class="col-12">
+  <div class="text-center mb-4">
+    <h2 class="fw-bold"><i class="bi bi-link-45deg text-warning"></i> Bridges</h2>
+    <p class="text-muted">Map one name to several tertiary products — e.g. "blood culture" → isolation blood + strips</p>
+  </div>
+  <% if (error) { %><div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <%= error %></div><% } %>
+  <% if (success) { %><div class="alert alert-success"><i class="bi bi-check-circle"></i> <%= success %></div><% } %>
+
+  <div class="mb-3"><button class="btn btn-warning" onclick="openBridge()"><i class="bi bi-plus-circle"></i> New Bridge</button></div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <% if (bridges.length === 0) { %><p class="text-muted text-center mb-0">No bridges yet.</p><% } else { %>
+        <% bridges.forEach(b => { %>
+          <div class="border rounded p-3 mb-2 d-flex justify-content-between align-items-start">
+            <div>
+              <div class="fw-semibold"><i class="bi bi-link-45deg text-warning"></i> <%= b.name %></div>
+              <div class="mt-1">
+                <% (b.items||[]).forEach(it => { %>
+                  <span class="badge bg-danger me-1"><%= it.quantity %>× <%= it.productName %></span>
+                <% }); %>
+              </div>
+              <% if (b.note) { %><div class="small text-muted mt-1"><%= b.note %></div><% } %>
+            </div>
+            <div class="d-flex gap-1">
+              <button class="btn btn-sm btn-outline-primary" onclick='editBridge(<%- JSON.stringify(b) %>)'><i class="bi bi-pencil"></i></button>
+              <form action="/bridges/<%= b.id %>?_method=DELETE" method="POST" onsubmit="return confirm('Delete this bridge?')"><button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+            </div>
+          </div>
+        <% }); %>
+      <% } %>
+    </div>
+  </div>
+</div></div>
+
+<div class="modal fade" id="bridgeModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header bg-warning"><h5 class="modal-title"><i class="bi bi-link-45deg"></i> <span id="bridgeTitle">New Bridge</span></h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <form id="bridgeForm" method="POST" action="/bridges">
+    <input type="hidden" name="_method" id="bridgeMethod" value="">
+    <input type="hidden" name="itemsJson" id="bridgeItemsJson">
+    <div class="modal-body">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Bridge name (the alias) <span class="text-danger">*</span></label>
+        <input class="form-control" name="name" id="bridgeName" required placeholder="e.g. blood culture">
+      </div>
+      <label class="form-label fw-semibold">Maps to these tertiary products</label>
+      <div id="bridgeItems"></div>
+      <button type="button" class="btn btn-sm btn-outline-warning mt-2" onclick="addBridgeItem()"><i class="bi bi-plus"></i> Add product</button>
+      <div class="mt-3"><input class="form-control" name="note" id="bridgeNote" placeholder="Note (optional)"></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-warning"><i class="bi bi-save"></i> Save Bridge</button></div>
+  </form>
+</div></div></div>
+
+<script>
+const tertiaryProducts = <%- JSON.stringify((tertiaryProducts||[]).map(p => ({ id:p.id, name:p.name }))) %>;
+let bItems = [];
+function renderBItems(){
+  const opts = tertiaryProducts.map(p=>`<option value="${p.id}">${escapeB(p.name)}</option>`).join('');
+  document.getElementById('bridgeItems').innerHTML = bItems.map((it,i)=>`
+    <div class="row g-2 mb-2 align-items-center">
+      <div class="col-md-7"><select class="form-select form-select-sm" onchange="bPick(${i},this)"><option value="">— tertiary product —</option>${opts}</select></div>
+      <div class="col-md-3"><div class="input-group input-group-sm"><span class="input-group-text">Qty</span><input type="number" min="0" step="0.01" class="form-control" value="${it.quantity}" oninput="bUpd(${i},this.value)"></div></div>
+      <div class="col-md-2 text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="bRm(${i})"><i class="bi bi-trash"></i></button></div>
+    </div>`).join('');
+  document.querySelectorAll('#bridgeItems select').forEach((s,i)=>{ if(bItems[i].productId) s.value=bItems[i].productId; });
+}
+function escapeB(s){return String(s||'').replace(/</g,'&lt;');}
+function addBridgeItem(){ bItems.push({productId:null,productName:'',quantity:1}); renderBItems(); }
+function bPick(i,sel){ const p=tertiaryProducts.find(x=>x.id===sel.value); bItems[i].productId=sel.value||null; bItems[i].productName=p?p.name:''; }
+function bUpd(i,v){ bItems[i].quantity=v; }
+function bRm(i){ bItems.splice(i,1); renderBItems(); }
+function openBridge(){
+  document.getElementById('bridgeTitle').textContent='New Bridge';
+  document.getElementById('bridgeForm').action='/bridges';
+  document.getElementById('bridgeMethod').value='';
+  document.getElementById('bridgeName').value='';
+  document.getElementById('bridgeNote').value='';
+  bItems=[{productId:null,productName:'',quantity:1}]; renderBItems();
+  new bootstrap.Modal(document.getElementById('bridgeModal')).show();
+}
+function editBridge(b){
+  document.getElementById('bridgeTitle').textContent='Edit Bridge';
+  document.getElementById('bridgeForm').action='/bridges/'+b.id+'?_method=PUT';
+  document.getElementById('bridgeMethod').value='PUT';
+  document.getElementById('bridgeName').value=b.name||'';
+  document.getElementById('bridgeNote').value=b.note||'';
+  bItems=(b.items||[]).map(it=>({productId:it.productId,productName:it.productName,quantity:it.quantity}));
+  if(!bItems.length) bItems=[{productId:null,productName:'',quantity:1}];
+  renderBItems();
+  new bootstrap.Modal(document.getElementById('bridgeModal')).show();
+}
+document.getElementById('bridgeForm').addEventListener('submit',function(e){
+  const valid=bItems.filter(it=>it.productId && Number(it.quantity)>0);
+  if(!valid.length){ e.preventDefault(); alert('Add at least one tertiary product.'); return; }
+  document.getElementById('bridgeItemsJson').value=JSON.stringify(valid);
+});
+</script>
+<%- include('partials/footer') %>

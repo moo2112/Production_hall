@@ -95,6 +95,9 @@ function secondaryUnitCost(secondary, primaryPriceMap) {
   return { unitCost: round2(unitCost), breakdown, missingPrices };
 }
 
+// (secondaryUnitCost above returns the MATERIAL cost only; preparation cost is
+// added in buildSecondaryCostMap so it flows through to tertiary costing too.)
+
 /**
  * Compute unit cost for every secondary product up front so tertiary products
  * can reference the result without recomputing. Keyed by secondary id.
@@ -103,10 +106,16 @@ function buildSecondaryCostMap(secondaryProducts = [], primaryPriceMap) {
   const map = {};
   for (const sec of secondaryProducts) {
     const result = secondaryUnitCost(sec, primaryPriceMap);
+    // Add the secondary's own preparation cost on top of its material cost.
+    const prep = toNumber(sec.preparationCost, 0);
+    const materialCost = result.unitCost;
     map[sec.id] = {
       id: sec.id,
       name: sec.name || sec.id,
       ...result,
+      materialCost,
+      preparationCost: prep,
+      unitCost: round2(materialCost + prep), // full per-unit cost of the secondary
     };
   }
   return map;
@@ -158,6 +167,21 @@ function tertiaryUnitCost(tertiary, secondaryCostMap) {
   };
 }
 
+// Wrapper that adds the tertiary's own preparation + packaging cost on top of
+// the cost of its secondary components. This is the FULL per-unit cost.
+function tertiaryFullUnitCost(tertiary, secondaryCostMap) {
+  const base = tertiaryUnitCost(tertiary, secondaryCostMap);
+  const prep = toNumber(tertiary.preparationCost, 0);
+  const pack = toNumber(tertiary.packagingCost, 0);
+  return {
+    ...base,
+    componentsCost: base.unitCost, // cost from secondary components only
+    preparationCost: prep,
+    packagingCost: pack,
+    unitCost: round2(base.unitCost + prep + pack),
+  };
+}
+
 /**
  * One-stop calculation used by the Statistics page and the secondary/tertiary
  * routes. Returns a fully-priced snapshot of the catalogue.
@@ -189,6 +213,8 @@ function calculateAll(
       id: sec.id,
       name: sec.name || sec.id,
       unitCost: c.unitCost,
+      materialCost: c.materialCost,
+      preparationCost: c.preparationCost,
       stock,
       stockValue: round2(c.unitCost * stock),
       breakdown: c.breakdown,
@@ -196,14 +222,17 @@ function calculateAll(
     };
   });
 
-  // Tertiary cost rows (with current-stock value)
+  // Tertiary cost rows (components + preparation + packaging)
   const tertiaryCosts = tertiaryProducts.map((ter) => {
-    const c = tertiaryUnitCost(ter, secondaryCostMap);
+    const c = tertiaryFullUnitCost(ter, secondaryCostMap);
     const stock = toNumber(ter.quantity, 0);
     return {
       id: ter.id,
       name: ter.name || ter.id,
       unitCost: c.unitCost,
+      componentsCost: c.componentsCost,
+      preparationCost: c.preparationCost,
+      packagingCost: c.packagingCost,
       stock,
       stockValue: round2(c.unitCost * stock),
       breakdown: c.breakdown,
@@ -257,5 +286,6 @@ module.exports = {
   secondaryUnitCost,
   buildSecondaryCostMap,
   tertiaryUnitCost,
+  tertiaryFullUnitCost,
   calculateAll,
 };

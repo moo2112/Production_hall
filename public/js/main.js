@@ -499,6 +499,10 @@ async function editSecondaryProduct(id) {
     document.getElementById("edit_description").value =
       product.description || "";
     document.getElementById("edit_damages").value = 0;
+    var secPrep = document.getElementById("edit_preparationCost");
+    if (secPrep)
+      secPrep.value =
+        product.preparationCost != null ? product.preparationCost : 0;
     document.getElementById("editProductForm").action =
       `/secondary/${id}?_method=PUT`;
 
@@ -546,6 +550,13 @@ async function editTertiaryProduct(id) {
     document.getElementById("edit_description").value =
       product.description || "";
     document.getElementById("edit_damages").value = 0;
+    var terPrep = document.getElementById("edit_preparationCost");
+    if (terPrep)
+      terPrep.value =
+        product.preparationCost != null ? product.preparationCost : 0;
+    var terPack = document.getElementById("edit_packagingCost");
+    if (terPack)
+      terPack.value = product.packagingCost != null ? product.packagingCost : 0;
     document.getElementById("editProductForm").action =
       `/tertiary/${id}?_method=PUT`;
 

@@ -15,15 +15,21 @@ function parseJson(str, fallback) {
 // ── GET /invoices — list + create form ───────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
-    const [invoices, tertiary] = await Promise.all([
+    const Client = require("../models/client");
+    const Bridge = require("../models/bridge");
+    const [invoices, tertiary, clients, bridges] = await Promise.all([
       Invoice.getAll(),
       TertiaryProduct.getAll().catch(() => []),
+      Client.getAll().catch(() => []),
+      Bridge.getAll().catch(() => []),
     ]);
     const nextNumber = await Invoice.nextNumber();
     res.render("invoices", {
       title: "Invoices",
       invoices,
       tertiaryProducts: tertiary,
+      clients,
+      bridges,
       nextNumber,
       error: req.query.error || null,
       success: req.query.success || null,
@@ -33,6 +39,8 @@ router.get("/", async (req, res) => {
       title: "Invoices",
       invoices: [],
       tertiaryProducts: [],
+      clients: [],
+      bridges: [],
       nextNumber: "",
       error: error.message,
       success: null,
@@ -71,6 +79,20 @@ router.post("/", async (req, res) => {
     const errors = Invoice.validate(data);
     if (errors.length) throw new Error(errors.join(", "));
     const inv = await Invoice.create(data);
+    // Optionally save the client for reuse later.
+    if (req.body.saveClient === "on" || req.body.saveClient === "true") {
+      try {
+        const Client = require("../models/client");
+        await Client.upsertByName({
+          name: customerName,
+          phone: customerPhone,
+          email: customerEmail,
+          address: customerAddress,
+        });
+      } catch (_) {
+        /* non-critical */
+      }
+    }
     await ActivityLog.log({
       action: "Invoice Created",
       itemName: `${inv.invoiceNumber} — ${inv.customer.name}`,
@@ -96,12 +118,15 @@ router.get("/:id/plan", async (req, res) => {
   try {
     const inv = await Invoice.getById(req.params.id);
     if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    const flat = Invoice.expandItems(inv.items || []);
     const items = [];
-    for (const item of inv.items || []) {
+    for (const item of flat) {
       if (!item.productId) {
         items.push({
           productName: item.productName,
           quantity: item.quantity,
+          viaBridge: item.viaBridge,
+
           unlinked: true,
           allocations: [],
           shortfall: item.quantity,
@@ -117,6 +142,7 @@ router.get("/:id/plan", async (req, res) => {
         items.push({
           productName: item.productName,
           quantity: item.quantity,
+          viaBridge: item.viaBridge,
           ...plan,
         });
       } catch (e) {

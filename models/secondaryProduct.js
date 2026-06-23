@@ -687,6 +687,9 @@ class SecondaryProduct {
     this.quantity = toNumber(data.quantity || 0);
     this.batchStock = normalizeBatchStock(data.batchStock || []);
     this.components = data.components || []; // Array of { productId, quantity }
+    // Optional extra cost per unit to PREPARE this secondary product, on top of
+    // its material cost (labour/processing). Added by costService.
+    this.preparationCost = toNumber(data.preparationCost || 0);
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }
@@ -811,6 +814,10 @@ class SecondaryProduct {
         ...data,
         updatedAt: new Date(),
       };
+      // Persist preparation cost as a number when provided.
+      if (data.preparationCost !== undefined) {
+        updateData.preparationCost = toNumber(data.preparationCost);
+      }
 
       if (data.quantity !== undefined && data.batchStock === undefined) {
         updateData.quantity = Math.max(0, toNumber(data.quantity));

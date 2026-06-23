@@ -141,6 +141,11 @@
               <label class="form-label fw-semibold">Description</label>
               <input type="text" class="form-control" name="description" placeholder="Optional">
             </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold"><i class="bi bi-tools me-1"></i>Preparation Cost / unit</label>
+              <input type="number" class="form-control" name="preparationCost" step="0.01" min="0" value="0" placeholder="0.00">
+              <small class="text-muted">Extra labour/processing cost per unit, added on top of material cost.</small>
+            </div>
           </div>
           <label class="form-label fw-semibold">Primary Component Recipe <span class="text-danger">*</span></label>
           <p class="text-muted small mb-2"><i class="bi bi-info-circle"></i> Click a primary product to add it, then set qty per unit.</p>
@@ -287,6 +292,10 @@
             <div class="col-md-6">
               <label class="form-label fw-semibold">Stock (units)</label>
               <input type="number" class="form-control" id="edit_quantity" name="quantity" step="0.01" min="0" placeholder="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold"><i class="bi bi-tools me-1"></i>Preparation Cost / unit</label>
+              <input type="number" class="form-control" id="edit_preparationCost" name="preparationCost" step="0.01" min="0" value="0">
             </div>
           </div>
           <div class="mb-3">

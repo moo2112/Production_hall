@@ -272,7 +272,9 @@ async function runTaskCompletion(day, task) {
     try {
       const inv = await Invoice.getById(task.invoiceId);
       if (inv) {
-        for (const item of inv.items || []) {
+        // Expand bridge lines into their underlying tertiary products first.
+        const flat = Invoice.expandItems(inv.items || []);
+        for (const item of flat) {
           if (item.productId && item.quantity > 0) {
             const { soldFrom, shortfall } = await TertiaryProduct.sellAnyBatch(
               item.productId,

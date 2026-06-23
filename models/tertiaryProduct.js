@@ -203,6 +203,12 @@ class TertiaryProduct {
     this.quantity = toNumber(data.quantity || 0);
     this.batchStock = normalizeBatchStock(data.batchStock || []);
     this.components = data.components || [];
+    // Extra per-unit costs for the FINISHED tertiary product, added on top of
+    // the cost of its secondary components by costService:
+    //   preparationCost — labour/processing to assemble/prepare the tertiary
+    //   packagingCost   — packaging the finished, sellable product
+    this.preparationCost = toNumber(data.preparationCost || 0);
+    this.packagingCost = toNumber(data.packagingCost || 0);
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }
@@ -327,6 +333,11 @@ class TertiaryProduct {
         ...data,
         updatedAt: new Date(),
       };
+      // Persist preparation & packaging costs as numbers when provided.
+      if (data.preparationCost !== undefined)
+        updateData.preparationCost = toNumber(data.preparationCost);
+      if (data.packagingCost !== undefined)
+        updateData.packagingCost = toNumber(data.packagingCost);
 
       if (data.quantity !== undefined && data.batchStock === undefined) {
         updateData.quantity = Math.max(0, toNumber(data.quantity));

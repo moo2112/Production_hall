@@ -165,6 +165,16 @@
               <label class="form-label fw-semibold">Description</label>
               <input type="text" class="form-control" name="description" placeholder="Optional">
             </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold"><i class="bi bi-tools me-1"></i>Preparation Cost / unit</label>
+              <input type="number" class="form-control" name="preparationCost" step="0.01" min="0" value="0">
+              <small class="text-muted">Assembly/processing of the tertiary.</small>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold"><i class="bi bi-box2 me-1"></i>Packaging Cost / unit</label>
+              <input type="number" class="form-control" name="packagingCost" step="0.01" min="0" value="0">
+              <small class="text-muted">Added to the final cost.</small>
+            </div>
           </div>
           <label class="form-label fw-semibold">Secondary Component Recipe <span class="text-danger">*</span></label>
           <p class="text-muted small mb-2"><i class="bi bi-info-circle"></i> Click a secondary product to add it, then set qty per unit.</p>
@@ -339,6 +349,14 @@
             <div class="col-md-6">
               <label class="form-label fw-semibold">Stock (units)</label>
               <input type="number" class="form-control" id="edit_quantity" name="quantity" step="0.01" min="0" placeholder="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold"><i class="bi bi-tools me-1"></i>Preparation Cost / unit</label>
+              <input type="number" class="form-control" id="edit_preparationCost" name="preparationCost" step="0.01" min="0" value="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold"><i class="bi bi-box2 me-1"></i>Packaging Cost / unit</label>
+              <input type="number" class="form-control" id="edit_packagingCost" name="packagingCost" step="0.01" min="0" value="0">
             </div>
           </div>
           <div class="mb-3">
