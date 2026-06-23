@@ -725,9 +725,35 @@ router.get("/:id", async (req, res) => {
         title: "Not Found",
         message: "Worker not found.",
       });
+
+    // Compute this worker's performance rank + standing among all workers.
+    // Ranking rewards completed tasks/units & quality rounds and penalises
+    // production errors (see Worker.computeRank).
+    let rank = null;
+    let rankPosition = null;
+    let totalWorkers = 0;
+    try {
+      const allWorkers = await Worker.getAll();
+      totalWorkers = allWorkers.length;
+      const ranked = allWorkers
+        .map((w) => ({ id: w.id, ...Worker.computeRank(w) }))
+        .sort((a, b) => b.score - a.score);
+      const idx = ranked.findIndex((r) => r.id === worker.id);
+      if (idx !== -1) {
+        rank = ranked[idx];
+        rankPosition = idx + 1; // 1-based standing
+      }
+    } catch (_) {
+      // Ranking is non-critical — fall back to computing this worker alone.
+      rank = Worker.computeRank(worker);
+    }
+
     res.render("worker-profile", {
       title: worker.name,
       worker,
+      rank,
+      rankPosition,
+      totalWorkers,
       fmtDate,
       success: req.query.success || null,
     });

@@ -93,6 +93,7 @@ const statisticsRoutes = require("./routes/statistics");
 const workflowsRoutes = require("./routes/workflows");
 const productionDayRoutes = require("./routes/productionDay");
 const invoicesRoutes = require("./routes/invoices");
+const costsRoutes = require("./routes/costs");
 
 app.get("/", (req, res) => {
   res.render("index", { title: "Production Hall" });
@@ -110,6 +111,7 @@ app.use("/statistics", statisticsRoutes);
 app.use("/workflows", workflowsRoutes);
 app.use("/production-day", productionDayRoutes);
 app.use("/invoices", invoicesRoutes);
+app.use("/costs", costsRoutes);
 
 // ── Error handlers ────────────────────────────────────────────────────────────
 app.use((req, res) => {

@@ -25,6 +25,58 @@
     </div>
   </div>
 
+  <% var hist=(worker.taskHistory||[]); %>
+  <!-- ── Performance Rank ────────────────────────────────────────────────── -->
+  <% if (rank) { %>
+  <div class="card shadow-sm mt-3 border-0">
+    <div class="card-body">
+      <div class="row align-items-center g-3">
+        <div class="col-md-3 text-center border-end">
+          <div class="text-muted small">Standing</div>
+          <div class="fw-bold" style="font-size:2rem">
+            <% if (rankPosition === 1) { %><i class="bi bi-trophy-fill text-warning"></i><% } %>
+            #<%= rankPosition || '—' %>
+          </div>
+          <div class="text-muted small">of <%= totalWorkers %> worker(s)</div>
+        </div>
+        <div class="col-md-2 text-center">
+          <div class="text-muted small">Score</div>
+          <div class="fw-bold fs-3 text-primary"><%= rank.score %></div>
+        </div>
+        <div class="col-md-7">
+          <div class="row text-center">
+            <div class="col"><div class="text-muted small">Tasks done</div><div class="fw-bold fs-5"><%= rank.tasksCompleted %></div></div>
+            <div class="col"><div class="text-muted small">Units made</div><div class="fw-bold fs-5"><%= Number(rank.unitsProduced).toFixed(0) %></div></div>
+            <div class="col"><div class="text-muted small">Quality rounds</div><div class="fw-bold fs-5"><%= rank.qualityRounds %></div></div>
+            <div class="col"><div class="text-muted small">Errors</div><div class="fw-bold fs-5 <%= rank.errors>0?'text-danger':'text-success' %>"><%= rank.errors %></div></div>
+          </div>
+          <div class="text-muted small mt-2"><i class="bi bi-info-circle"></i> Score = tasks×10 + units×0.1 + quality rounds×2 − errors×5. Lower errors rank higher. See full leaderboard on <a href="/statistics">Statistics</a>.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <% } %>
+
+  <!-- ── Production Tasks (assigned & completed) ─────────────────────────── -->
+  <div class="d-flex justify-content-between align-items-center mt-4">
+    <h5 class="fw-bold mb-0"><i class="bi bi-list-task text-primary"></i> Production Tasks Completed (<%= hist.length %>)</h5>
+  </div>
+  <div class="table-responsive mt-2"><table class="table table-bordered align-middle">
+    <thead class="table-light"><tr><th>Date</th><th>Product</th><th>Tier</th><th>Qty</th><th>Workflow</th></tr></thead>
+    <tbody>
+      <% if (!hist.length) { %><tr><td colspan="5" class="text-center text-muted">No production tasks completed by this worker yet.</td></tr><% } %>
+      <% hist.slice().reverse().forEach(function(t){ %>
+        <tr>
+          <td class="text-muted small"><%= t.date || fmtDate(t.completedAt) %></td>
+          <td><%= t.productName || '—' %></td>
+          <td><span class="badge <%= t.tier==='Tertiary'?'bg-danger':(t.tier==='Secondary'?'bg-warning text-dark':'bg-secondary') %>"><%= t.tier || '—' %></span></td>
+          <td><%= t.quantity != null ? t.quantity : '—' %></td>
+          <td class="small text-muted"><%= t.workflowName || '—' %></td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table></div>
+
   <div class="d-flex justify-content-between align-items-center mt-4">
     <h5 class="fw-bold mb-0"><i class="bi bi-box-seam text-purple"></i> Batches Made (<%= made.length %>)</h5>
   </div>
