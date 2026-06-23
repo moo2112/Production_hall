@@ -14,6 +14,13 @@ class PrimaryProduct {
         name: data.name,
         description: data.description || "",
         quantity: 0,
+        // Unit price of the primary product. Used by costService to calculate
+        // the production cost of secondary and tertiary products. Defaults to 0
+        // so existing flows and cost math never break on a missing price.
+        price:
+          data.price !== undefined && !isNaN(parseFloat(data.price))
+            ? parseFloat(data.price)
+            : 0,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -52,6 +59,11 @@ class PrimaryProduct {
         description: data.description || "",
         updatedAt: new Date(),
       };
+      // Persist unit price when provided (allows add/edit of price). A blank or
+      // non-numeric value is ignored so the existing price is preserved.
+      if (data.price !== undefined && !isNaN(parseFloat(data.price))) {
+        updateData.price = parseFloat(data.price);
+      }
       if (data.quantity !== undefined && !isNaN(parseFloat(data.quantity))) {
         updateData.quantity = parseFloat(data.quantity);
       }

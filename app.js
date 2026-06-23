@@ -70,12 +70,6 @@ const PORT = process.env.PORT || 3000;
 // ── Firebase health check ─────────────────────────────────────────────────────
 const { db } = require("./config/firebase");
 
-// ── One-time data migration: back-fill worker profiles from old patches ───────
-// Scans existing batches, creates profiles for any worker names that don't have
-// one yet, and rebuilds each worker's "batches made" list. Idempotent + safe.
-const { runWorkerMigrationOnce } = require("./migrations/migrateWorkers");
-runWorkerMigrationOnce();
-
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -95,6 +89,10 @@ const batchRoutes = require("./routes/batch");
 const formBuilderRoutes = require("./routes/formBuilder");
 const timelineRoutes = require("./routes/timeline");
 const workersRoutes = require("./routes/workers");
+const statisticsRoutes = require("./routes/statistics");
+const workflowsRoutes = require("./routes/workflows");
+const productionDayRoutes = require("./routes/productionDay");
+const invoicesRoutes = require("./routes/invoices");
 
 app.get("/", (req, res) => {
   res.render("index", { title: "Production Hall" });
@@ -108,44 +106,25 @@ app.use("/batch", batchRoutes);
 app.use("/form-builder", formBuilderRoutes);
 app.use("/timeline", timelineRoutes);
 app.use("/workers", workersRoutes);
+app.use("/statistics", statisticsRoutes);
+app.use("/workflows", workflowsRoutes);
+app.use("/production-day", productionDayRoutes);
+app.use("/invoices", invoicesRoutes);
 
 // ── Error handlers ────────────────────────────────────────────────────────────
 app.use((req, res) => {
-  res.status(404).render(
-    "error",
-    {
-      title: "Page Not Found",
-      message: "The page you are looking for does not exist.",
-    },
-    (err, html) => {
-      if (err) return res.status(404).send("404 — Page not found.");
-      res.send(html);
-    },
-  );
+  res.status(404).render("error", {
+    title: "Page Not Found",
+    message: "The page you are looking for does not exist.",
+  });
 });
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).render(
-    "error",
-    {
-      title: "Server Error",
-      message:
-        err && err.message
-          ? err.message
-          : "Something went wrong on the server.",
-    },
-    (renderErr, html) => {
-      if (renderErr) {
-        return res
-          .status(500)
-          .send(
-            "Server error: " + (err && err.message ? err.message : "unknown"),
-          );
-      }
-      res.send(html);
-    },
-  );
+  res.status(500).render("error", {
+    title: "Server Error",
+    message: "Something went wrong on the server.",
+  });
 });
 
 // ── Start server (local only — Vercel handles this itself) ────────────────────

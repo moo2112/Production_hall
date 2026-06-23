@@ -1,0 +1,478 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold"><i class="bi bi-bar-chart-line text-teal" style="color:#0d9488"></i> Statistics &amp; Insights</h2>
+      <p class="text-muted">Production, inventory, cost analysis &amp; smart recommendations</p>
+    </div>
+
+    <% if (error) { %>
+      <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <%= error %></div>
+    <% } %>
+
+    <% if (stats) { %>
+      <!-- ════════════════ AT-A-GLANCE SUMMARY CARDS ════════════════ -->
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+          <div class="card shadow-sm border-0 h-100">
+            <div class="card-body text-center">
+              <i class="bi bi-circle-fill text-success fs-3"></i>
+              <h3 class="fw-bold mb-0 mt-2"><%= stats.counts.primary %></h3>
+              <small class="text-muted">Primary Products</small>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-sm border-0 h-100">
+            <div class="card-body text-center">
+              <i class="bi bi-layer-forward text-warning fs-3"></i>
+              <h3 class="fw-bold mb-0 mt-2"><%= stats.counts.secondary %></h3>
+              <small class="text-muted">Secondary Products</small>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-sm border-0 h-100">
+            <div class="card-body text-center">
+              <i class="bi bi-diagram-3-fill text-danger fs-3"></i>
+              <h3 class="fw-bold mb-0 mt-2"><%= stats.counts.tertiary %></h3>
+              <small class="text-muted">Tertiary Products</small>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-sm border-0 h-100">
+            <div class="card-body text-center">
+              <i class="bi bi-cash-stack text-info fs-3"></i>
+              <h3 class="fw-bold mb-0 mt-2"><%= Number(stats.costs.totals.totalInventoryValue).toFixed(2) %></h3>
+              <small class="text-muted">Inventory Value (at cost)</small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Missing price warnings -->
+      <% if (stats.costs.missingPriceWarnings && stats.costs.missingPriceWarnings.length > 0) { %>
+        <div class="alert alert-warning">
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          <strong>Missing prices:</strong> the following primary products have no unit price, so any cost using them is understated —
+          <% stats.costs.missingPriceWarnings.forEach((n, i) => { %><span class="badge bg-warning text-dark me-1"><%= n %></span><% }); %>
+          <a href="/primary" class="alert-link ms-1">Set prices →</a>
+        </div>
+      <% } %>
+
+      <div class="text-muted small mb-3">
+        <i class="bi bi-clock"></i>
+        Analysis window: <strong><%= stats.windowDays %></strong> day(s)
+        <% if (stats.firstDate) { %>(since <%= new Date(stats.firstDate).toLocaleDateString() %>)<% } %>
+        · Safe-stock target: <strong><%= stats.safeStockDays %></strong> days
+        · <%= stats.counts.logs %> activity records analysed
+      </div>
+
+      <!-- ════════════════ COST ANALYSIS ════════════════ -->
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-info text-dark fw-semibold"><i class="bi bi-cash-coin"></i> Production Cost Analysis</div>
+        <div class="card-body">
+          <div class="row">
+            <!-- Secondary costs -->
+            <div class="col-lg-6 mb-3">
+              <h6 class="fw-bold">Cost per Secondary Product</h6>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle">
+                  <thead class="table-light"><tr><th>Product</th><th class="text-end">Unit Cost</th><th class="text-end">Stock</th><th class="text-end">Stock Value</th></tr></thead>
+                  <tbody>
+                    <% if (stats.costs.secondaryCosts.length === 0) { %>
+                      <tr><td colspan="4" class="text-muted text-center">No secondary products</td></tr>
+                    <% } %>
+                    <% stats.costs.secondaryCosts.forEach(c => { %>
+                      <tr>
+                        <td><%= c.name %> <% if (c.missingPrices && c.missingPrices.length) { %><i class="bi bi-exclamation-triangle-fill text-warning" title="Missing component price"></i><% } %></td>
+                        <td class="text-end"><%= Number(c.unitCost).toFixed(2) %></td>
+                        <td class="text-end"><%= c.stock %></td>
+                        <td class="text-end fw-semibold"><%= Number(c.stockValue).toFixed(2) %></td>
+                      </tr>
+                    <% }); %>
+                  </tbody>
+                  <tfoot><tr class="table-light"><th colspan="3">Total secondary stock value</th><th class="text-end"><%= Number(stats.costs.totals.secondaryStockValue).toFixed(2) %></th></tr></tfoot>
+                </table>
+              </div>
+            </div>
+            <!-- Tertiary costs -->
+            <div class="col-lg-6 mb-3">
+              <h6 class="fw-bold">Cost per Tertiary Product</h6>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle">
+                  <thead class="table-light"><tr><th>Product</th><th class="text-end">Unit Cost</th><th class="text-end">Stock</th><th class="text-end">Stock Value</th></tr></thead>
+                  <tbody>
+                    <% if (stats.costs.tertiaryCosts.length === 0) { %>
+                      <tr><td colspan="4" class="text-muted text-center">No tertiary products</td></tr>
+                    <% } %>
+                    <% stats.costs.tertiaryCosts.forEach(c => { %>
+                      <tr>
+                        <td><%= c.name %> <% if (c.missingPrices && c.missingPrices.length) { %><i class="bi bi-exclamation-triangle-fill text-warning" title="Missing component price"></i><% } %></td>
+                        <td class="text-end"><%= Number(c.unitCost).toFixed(2) %></td>
+                        <td class="text-end"><%= c.stock %></td>
+                        <td class="text-end fw-semibold"><%= Number(c.stockValue).toFixed(2) %></td>
+                      </tr>
+                    <% }); %>
+                  </tbody>
+                  <tfoot><tr class="table-light"><th colspan="3">Total tertiary stock value</th><th class="text-end"><%= Number(stats.costs.totals.tertiaryStockValue).toFixed(2) %></th></tr></tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-4"><div class="alert alert-secondary mb-0"><small class="d-block text-muted">Cost of consumed materials</small><span class="fs-5 fw-bold"><%= Number(stats.consumedMaterialCost).toFixed(2) %></span></div></div>
+            <div class="col-md-4"><div class="alert alert-danger mb-0"><small class="d-block text-muted">Damage / loss cost (primary)</small><span class="fs-5 fw-bold"><%= Number(stats.damageCost).toFixed(2) %></span></div></div>
+            <div class="col-md-4"><div class="alert alert-info mb-0"><small class="d-block text-muted">Total inventory value (at cost)</small><span class="fs-5 fw-bold"><%= Number(stats.costs.totals.totalInventoryValue).toFixed(2) %></span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════ FULLY-LOADED COST PER UNIT ════════════════ -->
+      <% if (stats.costing) { %>
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white fw-semibold"><i class="bi bi-calculator-fill"></i> Cost Per Unit (Materials + Overhead + Labour)</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-6 col-md-3"><div class="border rounded p-3 text-center"><small class="text-muted d-block">Material / unit (avg)</small><span class="fs-4 fw-bold"><%= Number(stats.costing.perUnit.material).toFixed(2) %></span></div></div>
+            <div class="col-6 col-md-3"><div class="border rounded p-3 text-center"><small class="text-muted d-block">Overhead / unit</small><span class="fs-4 fw-bold"><%= Number(stats.costing.perUnit.overhead).toFixed(2) %></span></div></div>
+            <div class="col-6 col-md-3"><div class="border rounded p-3 text-center"><small class="text-muted d-block">Labour / unit</small><span class="fs-4 fw-bold"><%= Number(stats.costing.perUnit.labor).toFixed(2) %></span></div></div>
+            <div class="col-6 col-md-3"><div class="border rounded p-3 text-center bg-light"><small class="text-muted d-block">Fully-loaded / unit</small><span class="fs-4 fw-bold text-success"><%= Number(stats.costing.perUnit.fullyLoaded).toFixed(2) %></span></div></div>
+          </div>
+          <p class="text-muted small mt-3 mb-0">
+            Allocated across <strong><%= stats.costing.unitsProduced %></strong> produced units ·
+            Overhead window total <%= Number(stats.costing.overhead.total).toFixed(2) %>
+            (fixed <%= Number(stats.costing.overhead.totalFixed).toFixed(2) %> + variable <%= Number(stats.costing.overhead.totalVariable).toFixed(2) %>) ·
+            Labour <%= Number(stats.costing.labor.total).toFixed(2) %>.
+            <a href="/costs" class="alert-link">Manage costs &amp; wages →</a>
+          </p>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- ════════════════ WORKER RANKING ════════════════ -->
+      <% if (stats.workerRanking && stats.workerRanking.length) { %>
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white fw-semibold"><i class="bi bi-trophy"></i> Worker Performance Ranking</div>
+        <div class="card-body">
+          <p class="text-muted small">Score rewards completed tasks &amp; units produced and quality rounds, and penalises production errors — so reliable, low-error workers rank highest.</p>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead class="table-light"><tr><th>#</th><th>Worker</th><th>Role</th><th class="text-end">Tasks</th><th class="text-end">Units</th><th class="text-end">Quality rounds</th><th class="text-end">Errors</th><th class="text-end">Score</th></tr></thead>
+              <tbody>
+                <% stats.workerRanking.forEach((w, i) => { %>
+                  <tr>
+                    <td><% if (i===0) { %><i class="bi bi-trophy-fill text-warning"></i><% } else { %><%= i+1 %><% } %></td>
+                    <td class="fw-semibold"><%= w.name %></td>
+                    <td class="small text-muted"><%= w.role || '—' %></td>
+                    <td class="text-end"><%= w.tasksCompleted %></td>
+                    <td class="text-end"><%= Number(w.unitsProduced).toFixed(0) %></td>
+                    <td class="text-end"><%= w.qualityRounds %></td>
+                    <td class="text-end <%= w.errors>0?'text-danger':'' %>"><%= w.errors %></td>
+                    <td class="text-end fw-bold"><%= w.score %></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- ════════════════ PRIMARY PRODUCT ANALYSIS ════════════════ -->
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-success text-white fw-semibold"><i class="bi bi-graph-up"></i> Primary Product Consumption &amp; Coverage</div>
+        <div class="card-body">
+          <p class="text-muted small mb-2"><i class="bi bi-info-circle"></i> Consumption is derived from recorded secondary-production events × recipes. Coverage = current stock ÷ average daily consumption.</p>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Primary Product</th>
+                  <th class="text-end">Unit Price</th>
+                  <th class="text-end">Current Stock</th>
+                  <th class="text-end">Avg Daily Use</th>
+                  <th class="text-end">Used (7d)</th>
+                  <th class="text-end">Used (30d)</th>
+                  <th class="text-end">Coverage</th>
+                  <th class="text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% if (stats.primaryStats.length === 0) { %><tr><td colspan="8" class="text-center text-muted">No primary products</td></tr><% } %>
+                <% stats.primaryStats.forEach(p => { %>
+                  <tr class="<%= p.belowSafe ? 'table-warning' : '' %>">
+                    <td class="fw-semibold"><%= p.name %></td>
+                    <td class="text-end"><% if (p.hasPrice) { %><%= Number(p.price).toFixed(2) %><% } else { %><span class="badge bg-warning text-dark">none</span><% } %></td>
+                    <td class="text-end"><%= p.currentStock %></td>
+                    <td class="text-end"><%= Number(p.avgDaily).toFixed(2) %></td>
+                    <td class="text-end"><%= Number(p.consumed7).toFixed(2) %></td>
+                    <td class="text-end"><%= Number(p.consumed30).toFixed(2) %></td>
+                    <td class="text-end"><% if (p.coverageDays === null) { %><span class="text-muted">—</span><% } else { %><%= p.coverageDays %> d<% } %></td>
+                    <td class="text-center">
+                      <% if (p.belowSafe) { %><span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill"></i> Below safe</span>
+                      <% } else if (p.coverageDays === null) { %><span class="badge bg-secondary">No usage data</span>
+                      <% } else { %><span class="badge bg-success">OK</span><% } %>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════ TWO-COLUMN: MOST CONSUMED + BELOW SAFE ════════════════ -->
+      <div class="row">
+        <div class="col-lg-6 mb-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header fw-semibold"><i class="bi bi-fire text-danger"></i> Most Consumed Primary Products</div>
+            <div class="card-body">
+              <% if (stats.mostConsumed.length === 0) { %><p class="text-muted mb-0">No consumption recorded yet.</p><% } else { %>
+              <ol class="list-group list-group-numbered">
+                <% stats.mostConsumed.slice(0,10).forEach(p => { %>
+                  <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <%= p.name %>
+                    <span class="badge bg-primary rounded-pill"><%= Number(p.totalConsumed).toFixed(2) %> units</span>
+                  </li>
+                <% }); %>
+              </ol>
+              <% } %>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-6 mb-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header fw-semibold"><i class="bi bi-exclamation-octagon text-warning"></i> Products Below Safe Stock (<%= stats.safeStockDays %>-day)</div>
+            <div class="card-body">
+              <% if (stats.belowSafe.length === 0) { %><p class="text-success mb-0"><i class="bi bi-check-circle"></i> All products are above the safe stock level.</p><% } else { %>
+              <ul class="list-group">
+                <% stats.belowSafe.forEach(p => { %>
+                  <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-exclamation-triangle-fill text-warning"></i> <%= p.name %></span>
+                    <span class="small text-muted"><%= p.currentStock %> in stock · <%= p.coverageDays %>d coverage</span>
+                  </li>
+                <% }); %>
+              </ul>
+              <% } %>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════ CONSUMPTION RATES + DAMAGE + STOCK ════════════════ -->
+      <div class="row">
+        <div class="col-lg-4 mb-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header fw-semibold"><i class="bi bi-speedometer2"></i> Consumption Rates (all primaries)</div>
+            <div class="card-body">
+              <table class="table table-sm mb-0">
+                <tr><td>Average daily</td><td class="text-end fw-bold"><%= Number(stats.consumptionRates.daily).toFixed(2) %></td></tr>
+                <tr><td>Last 7 days (weekly)</td><td class="text-end fw-bold"><%= Number(stats.consumptionRates.weekly).toFixed(2) %></td></tr>
+                <tr><td>Last 30 days (monthly)</td><td class="text-end fw-bold"><%= Number(stats.consumptionRates.monthly).toFixed(2) %></td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-4 mb-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header fw-semibold"><i class="bi bi-trash"></i> Damage / Waste Summary</div>
+            <div class="card-body">
+              <table class="table table-sm mb-0">
+                <tr><td>Primary damaged</td><td class="text-end fw-bold text-danger"><%= Number(stats.damageTotals.primary).toFixed(2) %></td></tr>
+                <tr><td>Secondary damaged</td><td class="text-end fw-bold text-danger"><%= Number(stats.damageTotals.secondary).toFixed(2) %></td></tr>
+                <tr><td>Tertiary damaged</td><td class="text-end fw-bold text-danger"><%= Number(stats.damageTotals.tertiary).toFixed(2) %></td></tr>
+                <tr class="table-light"><td>Damage cost (primary)</td><td class="text-end fw-bold"><%= Number(stats.damageCost).toFixed(2) %></td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-4 mb-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header fw-semibold"><i class="bi bi-boxes"></i> Current Stock Levels</div>
+            <div class="card-body">
+              <table class="table table-sm mb-0">
+                <tr><td>Total primary stock</td><td class="text-end fw-bold"><%= Number(stats.stockLevels.primaryTotal).toFixed(2) %></td></tr>
+                <tr><td>Total secondary stock</td><td class="text-end fw-bold"><%= Number(stats.stockLevels.secondaryTotal).toFixed(2) %></td></tr>
+                <tr><td>Total tertiary stock</td><td class="text-end fw-bold"><%= Number(stats.stockLevels.tertiaryTotal).toFixed(2) %></td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════ DAILY PRODUCTION & INVENTORY MOVEMENT ════════════════ -->
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold"><i class="bi bi-calendar3"></i> Daily Production &amp; Inventory Movement (last 30 active days)</div>
+        <div class="card-body">
+          <% if (stats.dailyProduction.length === 0) { %><p class="text-muted mb-0">No production recorded yet.</p><% } else { %>
+          <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+              <thead class="table-light"><tr><th>Date</th><th class="text-end">Primary</th><th class="text-end">Secondary</th><th class="text-end">Tertiary</th><th class="text-end">Damaged</th></tr></thead>
+              <tbody>
+                <% stats.dailyProduction.slice().reverse().forEach(d => { %>
+                  <tr>
+                    <td><%= d.day %></td>
+                    <td class="text-end"><%= Number(d.primary).toFixed(2) %></td>
+                    <td class="text-end"><%= Number(d.secondary).toFixed(2) %></td>
+                    <td class="text-end"><%= Number(d.tertiary).toFixed(2) %></td>
+                    <td class="text-end <%= d.damaged > 0 ? 'text-danger fw-semibold' : '' %>"><%= Number(d.damaged).toFixed(2) %></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- ════════════════ PURCHASE ORDER RECOMMENDATION ════════════════ -->
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white fw-semibold"><i class="bi bi-cart-plus"></i> Purchase Order Recommendation (Primary Products)</div>
+        <div class="card-body">
+          <div class="d-flex flex-wrap gap-2 align-items-end mb-3">
+            <div>
+              <label class="form-label fw-semibold mb-1">Coverage period</label>
+              <select id="poPeriod" class="form-select" style="min-width:180px">
+                <option value="7">1 week (7 days)</option>
+                <option value="14">2 weeks (14 days)</option>
+                <option value="30" selected>1 month (30 days)</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </div>
+            <div id="poCustomWrap" style="display:none">
+              <label class="form-label fw-semibold mb-1">Custom days</label>
+              <input type="number" id="poCustomDays" class="form-control" min="1" value="45" style="width:120px">
+            </div>
+            <button id="poGenerate" class="btn btn-primary"><i class="bi bi-calculator"></i> Generate</button>
+            <span class="ms-auto text-muted small" id="poSummary"></span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle" id="poTable">
+              <thead class="table-light"><tr><th>Primary Product</th><th class="text-end">Avg Daily</th><th class="text-end">Current Stock</th><th class="text-end">Need for Period</th><th class="text-end">Recommended Order</th><th class="text-end">Est. Cost</th><th class="text-center">Status</th></tr></thead>
+              <tbody id="poBody"><!-- filled by JS, initial render below --></tbody>
+              <tfoot><tr class="table-light"><th colspan="5">Total estimated order cost</th><th class="text-end" id="poTotal">—</th><th></th></tr></tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════ DAILY PRODUCTION TASK RECOMMENDATION ════════════════ -->
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-success text-white fw-semibold"><i class="bi bi-list-task"></i> Daily Production Task Recommendation</div>
+        <div class="card-body">
+          <div class="d-flex flex-wrap gap-2 align-items-end mb-3">
+            <div>
+              <label class="form-label fw-semibold mb-1">Target coverage</label>
+              <select id="taskDays" class="form-select" style="min-width:180px">
+                <option value="7">1 week (7 days)</option>
+                <option value="14" selected>2 weeks (14 days)</option>
+                <option value="30">1 month (30 days)</option>
+              </select>
+            </div>
+            <button id="taskGenerate" class="btn btn-success"><i class="bi bi-calculator"></i> Generate</button>
+            <span class="ms-auto text-muted small" id="taskSummary"></span>
+          </div>
+          <p class="text-muted small"><i class="bi bi-info-circle"></i> Covers <strong>secondary &amp; tertiary products only</strong> (primary materials are replenished via the purchase order above). Suggested production = required stock − current stock, where demand = how fast each product is consumed by the next tier or sold.</p>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle" id="taskTable">
+              <thead class="table-light"><tr><th>Product</th><th>Tier</th><th class="text-end">Current Stock</th><th class="text-end">Avg Daily Use</th><th class="text-end">Required Stock</th><th class="text-end">Shortage</th><th class="text-end">Suggested Production</th><th class="text-center">Action</th></tr></thead>
+              <tbody id="taskBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    <% } %>
+  </div>
+</div>
+
+<script>
+// ── Initial data injected from server-rendered defaults ──────────────────────
+var initialPO = <%- stats ? JSON.stringify(purchaseOrder) : 'null' %>;
+var initialTasks = <%- stats ? JSON.stringify(productionTasks) : 'null' %>;
+
+function fmt(n) { return (Number(n) || 0).toFixed(2); }
+
+// ── Render purchase order table ──────────────────────────────────────────────
+function renderPO(data) {
+  var body = document.getElementById('poBody');
+  if (!data || !data.items) { body.innerHTML = '<tr><td colspan="7" class="text-muted text-center">No data</td></tr>'; return; }
+  body.innerHTML = data.items.map(function(i) {
+    var status;
+    if (i.noData) status = '<span class="badge bg-secondary">No usage data</span>';
+    else if (i.sufficient) status = '<span class="badge bg-success">Stock sufficient</span>';
+    else status = '<span class="badge bg-primary">Order needed</span>';
+    var priceCell = i.hasPrice ? fmt(i.estimatedCost) : '<span class="text-warning">no price</span>';
+    return '<tr class="' + (i.recommendedOrder > 0 ? 'table-primary' : '') + '">' +
+      '<td class="fw-semibold">' + i.name + '</td>' +
+      '<td class="text-end">' + fmt(i.avgDaily) + '</td>' +
+      '<td class="text-end">' + i.currentStock + '</td>' +
+      '<td class="text-end">' + fmt(i.requiredForPeriod) + '</td>' +
+      '<td class="text-end fw-bold">' + fmt(i.recommendedOrder) + '</td>' +
+      '<td class="text-end">' + priceCell + '</td>' +
+      '<td class="text-center">' + status + '</td></tr>';
+  }).join('');
+  document.getElementById('poTotal').textContent = fmt(data.totalEstimatedCost);
+  document.getElementById('poSummary').textContent =
+    data.orderNeededCount + ' product(s) need ordering for ' + data.coverageDays + ' days';
+}
+
+// ── Render production task table ─────────────────────────────────────────────
+function renderTasks(data) {
+  var body = document.getElementById('taskBody');
+  if (!data || !data.tasks) { body.innerHTML = '<tr><td colspan="8" class="text-muted text-center">No data</td></tr>'; return; }
+  body.innerHTML = data.tasks.map(function(t) {
+    var action;
+    if (t.noData) action = '<span class="badge bg-secondary">No usage data</span>';
+    else if (t.needsProduction) action = '<span class="badge bg-danger">Produce now</span>';
+    else action = '<span class="badge bg-success">No action</span>';
+    return '<tr class="' + (t.needsProduction ? 'table-warning' : '') + '">' +
+      '<td class="fw-semibold">' + t.name + '</td>' +
+      '<td><span class="badge ' + (t.tier === 'Tertiary' ? 'bg-danger' : 'bg-warning text-dark') + '">' + (t.tier || '') + '</span></td>' +
+      '<td class="text-end">' + t.currentStock + '</td>' +
+      '<td class="text-end">' + fmt(t.avgDaily) + '</td>' +
+      '<td class="text-end">' + fmt(t.requiredStock) + '</td>' +
+      '<td class="text-end">' + fmt(t.shortage) + '</td>' +
+      '<td class="text-end fw-bold">' + fmt(t.suggestedProduction) + '</td>' +
+      '<td class="text-center">' + action + '</td></tr>';
+  }).join('');
+  document.getElementById('taskSummary').textContent =
+    data.actionCount + ' product(s) need production for ' + data.targetDays + '-day coverage';
+}
+
+// ── Wire up interactivity (only if the dashboard rendered) ───────────────────
+if (initialPO) {
+  renderPO(initialPO);
+  renderTasks(initialTasks);
+
+  document.getElementById('poPeriod').addEventListener('change', function() {
+    document.getElementById('poCustomWrap').style.display = this.value === 'custom' ? '' : 'none';
+  });
+
+  document.getElementById('poGenerate').addEventListener('click', async function() {
+    var sel = document.getElementById('poPeriod').value;
+    var days = sel === 'custom' ? (document.getElementById('poCustomDays').value || 30) : sel;
+    this.disabled = true;
+    try {
+      var res = await fetch('/statistics/purchase-order?days=' + encodeURIComponent(days));
+      renderPO(await res.json());
+    } catch (e) { alert('Failed to generate purchase order'); }
+    this.disabled = false;
+  });
+
+  document.getElementById('taskGenerate').addEventListener('click', async function() {
+    var days = document.getElementById('taskDays').value;
+    this.disabled = true;
+    try {
+      var res = await fetch('/statistics/production-tasks?days=' + encodeURIComponent(days));
+      renderTasks(await res.json());
+    } catch (e) { alert('Failed to generate production tasks'); }
+    this.disabled = false;
+  });
+}
+</script>
+
+<%- include('partials/footer') %>

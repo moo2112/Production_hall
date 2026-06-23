@@ -1,0 +1,240 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold"><i class="bi bi-diagram-2 text-success"></i> Production Workflows</h2>
+      <p class="text-muted">Design the step-by-step process to convert products between tiers, and the packaging &amp; selling process</p>
+    </div>
+
+    <% if (error) { %><div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <%= error %></div><% } %>
+    <% if (success) { %><div class="alert alert-success"><i class="bi bi-check-circle"></i> <%= success %></div><% } %>
+
+    <div class="mb-3">
+      <button class="btn btn-success" onclick="openBuilder()"><i class="bi bi-plus-circle"></i> Design New Workflow</button>
+    </div>
+
+    <% if (workflows.length === 0) { %>
+      <div class="card shadow-sm"><div class="card-body text-center text-muted py-5">
+        <i class="bi bi-diagram-2 display-1 opacity-25"></i>
+        <p class="mt-3">No workflows yet. Click <strong>Design New Workflow</strong> to create the steps for converting primary → secondary, secondary → tertiary, or packaging &amp; selling.</p>
+      </div></div>
+    <% } else { %>
+      <% workflows.forEach(wf => { %>
+        <div class="card shadow-sm mb-3">
+          <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <strong><i class="bi bi-diagram-2 text-success"></i> <%= wf.name %></strong>
+              <span class="badge bg-secondary ms-2"><%= (wf.type||'custom').replace(/_/g,' ') %></span>
+              <% if (wf.productName) { %><span class="badge bg-info text-dark ms-1"><%= wf.productName %> (<%= wf.productTier %>)</span><% } %>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+              <span class="small text-muted">
+                <i class="bi bi-clock"></i> <%= wf.workingHoursFrom || '—' %>–<%= wf.workingHoursTo || '—' %>
+                · <i class="bi bi-hourglass-split"></i> <%= wf.minutesPerUnitTotal %> min/unit
+                · <i class="bi bi-people-fill"></i> peak <%= wf.peakWorkers %> worker(s)
+                · <%= wf.stepCount %> step(s)
+              </span>
+              <button class="btn btn-sm btn-outline-primary" onclick='editWorkflow("<%= wf.id %>")'><i class="bi bi-pencil"></i></button>
+              <form action="/workflows/<%= wf.id %>?_method=DELETE" method="POST" class="d-inline" onsubmit="return confirm('Delete this workflow?')">
+                <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+              </form>
+            </div>
+          </div>
+          <div class="card-body">
+            <!-- Flowchart of steps -->
+            <div class="d-flex flex-wrap align-items-stretch gap-2">
+              <% (wf.steps||[]).forEach((s, i) => { %>
+                <div class="d-flex align-items-center">
+                  <div class="border rounded p-2 bg-light" style="min-width:160px;max-width:220px">
+                    <div class="fw-semibold small"><span class="badge bg-success me-1"><%= i+1 %></span><%= s.name %></div>
+                    <% if (s.description) { %><div class="text-muted" style="font-size:.75rem"><%= s.description %></div><% } %>
+                    <div class="text-muted mt-1" style="font-size:.72rem">
+                      <i class="bi bi-hourglass"></i> <%= s.minutesPerUnit %> min/unit ·
+                      <i class="bi bi-person"></i> <%= s.workersNeeded %>
+                    </div>
+                  </div>
+                  <% if (i < wf.steps.length - 1) { %><i class="bi bi-arrow-right fs-4 text-success mx-1"></i><% } %>
+                </div>
+              <% }); %>
+            </div>
+          </div>
+        </div>
+      <% }); %>
+    <% } %>
+  </div>
+</div>
+
+<!-- ══════════ WORKFLOW BUILDER MODAL ══════════ -->
+<div class="modal fade" id="builderModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-diagram-2"></i> <span id="builderTitle">Design Workflow</span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="builderForm" method="POST" action="/workflows">
+        <input type="hidden" name="_method" id="builderMethod" value="">
+        <input type="hidden" name="stepsJson" id="stepsJson">
+        <input type="hidden" name="productName" id="productNameField">
+        <input type="hidden" name="productTier" id="productTierField">
+        <div class="modal-body">
+          <div class="alert alert-light border d-flex align-items-center gap-2 py-2">
+            <i class="bi bi-files text-success"></i>
+            <span class="small">Reuse a similar workflow:</span>
+            <select class="form-select form-select-sm" id="copyFrom" style="max-width:280px">
+              <option value="">— start blank —</option>
+              <% workflows.forEach(w => { %><option value="<%= w.id %>"><%= w.name %></option><% }); %>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-success" onclick="copyFromExisting()"><i class="bi bi-clipboard-plus"></i> Copy fields</button>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-5">
+              <label class="form-label fw-semibold">Workflow Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="name" id="wfName" required placeholder="e.g. Assemble Dough from Primary">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Type</label>
+              <select class="form-select" name="type" id="wfType">
+                <option value="primary_to_secondary">Primary → Secondary</option>
+                <option value="secondary_to_tertiary">Secondary → Tertiary</option>
+                <option value="packaging_selling">Packaging &amp; Selling</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Output Product (optional)</label>
+              <select class="form-select" id="wfProduct" name="productId">
+                <option value="">— none / general —</option>
+                <optgroup label="Secondary">
+                  <% secondaryProducts.forEach(p => { %><option value="<%= p.id %>" data-name="<%= p.name %>" data-tier="Secondary"><%= p.name %></option><% }); %>
+                </optgroup>
+                <optgroup label="Tertiary">
+                  <% tertiaryProducts.forEach(p => { %><option value="<%= p.id %>" data-name="<%= p.name %>" data-tier="Tertiary"><%= p.name %></option><% }); %>
+                </optgroup>
+              </select>
+              <small class="text-muted">Link a product so the planner can attach this workflow automatically.</small>
+            </div>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Working hours from</label>
+              <input type="time" class="form-control" name="workingHoursFrom" id="wfFrom">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Working hours to</label>
+              <input type="time" class="form-control" name="workingHoursTo" id="wfTo">
+            </div>
+          </div>
+
+          <hr>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="fw-bold mb-0"><i class="bi bi-list-ol"></i> Steps</h6>
+            <button type="button" class="btn btn-sm btn-success" onclick="addStep()"><i class="bi bi-plus"></i> Add Step</button>
+          </div>
+          <div id="stepsContainer"></div>
+          <p class="text-muted small mt-2" id="noStepsMsg">No steps yet — add the first step of this process.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success"><i class="bi bi-save"></i> Save Workflow</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+let stepRows = [];
+
+function renderSteps() {
+  const c = document.getElementById('stepsContainer');
+  document.getElementById('noStepsMsg').style.display = stepRows.length ? 'none' : '';
+  c.innerHTML = stepRows.map((s, i) => `
+    <div class="border rounded p-2 mb-2 bg-light">
+      <div class="d-flex align-items-center mb-2">
+        <span class="badge bg-success me-2">${i + 1}</span>
+        <input class="form-control form-control-sm me-2" placeholder="Step name *" value="${escapeHtml(s.name)}" oninput="updateStep(${i},'name',this.value)">
+        <div class="input-group input-group-sm me-2" style="width:150px"><span class="input-group-text">min/unit</span><input type="number" min="0" class="form-control" value="${s.minutesPerUnit}" oninput="updateStep(${i},'minutesPerUnit',this.value)"></div>
+        <div class="input-group input-group-sm me-2" style="width:160px"><span class="input-group-text"><i class="bi bi-people"></i></span><input type="number" min="0" class="form-control" value="${s.workersNeeded}" oninput="updateStep(${i},'workersNeeded',this.value)"></div>
+        <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="moveStep(${i},-1)" ${i===0?'disabled':''}><i class="bi bi-arrow-up"></i></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="moveStep(${i},1)" ${i===stepRows.length-1?'disabled':''}><i class="bi bi-arrow-down"></i></button>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeStep(${i})"><i class="bi bi-trash"></i></button>
+      </div>
+      <input class="form-control form-control-sm" placeholder="Description (optional)" value="${escapeHtml(s.description)}" oninput="updateStep(${i},'description',this.value)">
+    </div>`).join('');
+}
+function escapeHtml(s){return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+function addStep(){ stepRows.push({name:'',description:'',minutesPerUnit:0,workersNeeded:1}); renderSteps(); }
+function updateStep(i,f,v){ stepRows[i][f]=v; }
+function removeStep(i){ stepRows.splice(i,1); renderSteps(); }
+function moveStep(i,d){ const j=i+d; if(j<0||j>=stepRows.length)return; [stepRows[i],stepRows[j]]=[stepRows[j],stepRows[i]]; renderSteps(); }
+
+async function copyFromExisting(){
+  const id = document.getElementById('copyFrom').value;
+  if(!id) return;
+  try {
+    const wf = await (await fetch('/workflows/'+id)).json();
+    if (wf.error) throw new Error(wf.error);
+    // Copy fields into the current (new) workflow, leaving it as a fresh create.
+    document.getElementById('wfType').value=wf.type||'custom';
+    document.getElementById('wfFrom').value=wf.workingHoursFrom||'';
+    document.getElementById('wfTo').value=wf.workingHoursTo||'';
+    if(!document.getElementById('wfName').value) document.getElementById('wfName').value=(wf.name||'')+' (copy)';
+    stepRows=(wf.steps||[]).map(s=>({name:s.name||'',description:s.description||'',minutesPerUnit:(s.minutesPerUnit!=null?s.minutesPerUnit:(s.expectedMinutes||0)),workersNeeded:s.workersNeeded||0}));
+    if(!stepRows.length) stepRows=[{name:'',description:'',minutesPerUnit:0,workersNeeded:1}];
+    renderSteps();
+  } catch(e){ alert('Failed to copy: '+e.message); }
+}
+
+function openBuilder(){
+  document.getElementById('builderTitle').textContent='Design Workflow';
+  document.getElementById('builderForm').action='/workflows';
+  document.getElementById('builderMethod').value='';
+  document.getElementById('wfName').value='';
+  document.getElementById('wfType').value='primary_to_secondary';
+  document.getElementById('wfProduct').value='';
+  document.getElementById('wfFrom').value='';
+  document.getElementById('wfTo').value='';
+  stepRows=[{name:'',description:'',minutesPerUnit:0,workersNeeded:1}];
+  renderSteps();
+  new bootstrap.Modal(document.getElementById('builderModal')).show();
+}
+
+async function editWorkflow(id){
+  try {
+    const wf = await (await fetch('/workflows/'+id)).json();
+    if (wf.error) throw new Error(wf.error);
+    document.getElementById('builderTitle').textContent='Edit Workflow';
+    document.getElementById('builderForm').action='/workflows/'+id+'?_method=PUT';
+    document.getElementById('wfName').value=wf.name||'';
+    document.getElementById('wfType').value=wf.type||'custom';
+    document.getElementById('wfProduct').value=wf.productId||'';
+    document.getElementById('wfFrom').value=wf.workingHoursFrom||'';
+    document.getElementById('wfTo').value=wf.workingHoursTo||'';
+    stepRows=(wf.steps||[]).map(s=>({name:s.name||'',description:s.description||'',minutesPerUnit:(s.minutesPerUnit!=null?s.minutesPerUnit:(s.expectedMinutes||0)),workersNeeded:s.workersNeeded||0}));
+    if(!stepRows.length) stepRows=[{name:'',description:'',minutesPerUnit:0,workersNeeded:1}];
+    renderSteps();
+    new bootstrap.Modal(document.getElementById('builderModal')).show();
+  } catch(e){ alert('Failed to load workflow: '+e.message); }
+}
+
+// Sync product name/tier hidden fields on selection
+document.getElementById('wfProduct').addEventListener('change', function(){
+  const opt=this.options[this.selectedIndex];
+  document.getElementById('productNameField').value=opt.dataset.name||'';
+  document.getElementById('productTierField').value=opt.dataset.tier||'';
+});
+
+// Serialize steps on submit
+document.getElementById('builderForm').addEventListener('submit', function(e){
+  const valid = stepRows.filter(s => (s.name||'').trim() !== '');
+  if (!valid.length){ e.preventDefault(); alert('Add at least one step with a name.'); return; }
+  document.getElementById('stepsJson').value = JSON.stringify(valid);
+  const opt=document.getElementById('wfProduct').options[document.getElementById('wfProduct').selectedIndex];
+  document.getElementById('productNameField').value=opt.dataset.name||'';
+  document.getElementById('productTierField').value=opt.dataset.tier||'';
+});
+</script>
+
+<%- include('partials/footer') %>

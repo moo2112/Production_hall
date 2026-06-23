@@ -26,12 +26,13 @@ router.get("/", async (req, res) => {
 // ── POST /primary — ENCODE only ───────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, price } = req.body;
     if (!name || name.trim() === "")
       throw new Error("Product name is required");
     await PrimaryProduct.create({
       name: name.trim(),
       description: description || "",
+      price: price, // optional unit price; model defaults to 0 if blank
     });
     await ActivityLog.log({
       action: "Primary Product Encoded",
@@ -93,7 +94,7 @@ router.post("/:id/produce", async (req, res) => {
 // ── PUT /primary/:id ──────────────────────────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
-    const { name, description, quantity, damages } = req.body;
+    const { name, description, quantity, damages, price } = req.body;
     if (!name || name.trim() === "")
       return res.status(400).json({ error: "Product name is required" });
 
@@ -117,12 +118,14 @@ router.put("/:id", async (req, res) => {
         description: description || "",
         quantity: newQuantity,
         damagedQuantity: currentDamaged + damagesAmt,
+        price: price, // save edited unit price
       });
     } else {
       await PrimaryProduct.update(req.params.id, {
         name: name.trim(),
         description: description || "",
         quantity: newQuantity,
+        price: price, // save edited unit price
       });
     }
 

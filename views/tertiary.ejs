@@ -50,6 +50,7 @@
                   <th>Stock</th>
                   <th>Description</th>
                   <th>Secondary Components (Recipe)</th>
+                  <th>Unit Cost</th>
                   <th class="text-end">Actions</th>
                 </tr>
               </thead>
@@ -90,6 +91,12 @@
                           <span class="badge bg-warning text-dark me-1"><%= comp.name %> × <%= comp.usedQuantity %></span>
                         <% }); %>
                       <% } else { %><span class="text-muted small">-</span><% } %>
+                    </td>
+                    <td>
+                      <span class="badge bg-info text-dark fs-6"><i class="bi bi-cash-stack"></i> <%= Number(product.unitCost || 0).toFixed(2) %></span>
+                      <% if (product.costMissingPrice) { %>
+                        <div class="small text-warning mt-1"><i class="bi bi-exclamation-triangle-fill"></i> Some component prices missing</div>
+                      <% } %>
                     </td>
                     <td class="text-end">
                       <button class="btn btn-sm btn-danger credit-btn"

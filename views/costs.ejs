@@ -1,0 +1,96 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold"><i class="bi bi-cash-stack text-success"></i> Costs &amp; Wages</h2>
+      <p class="text-muted">Record fixed &amp; variable costs and worker wages so the system can compute a fully-loaded cost per unit</p>
+    </div>
+
+    <% if (error) { %><div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <%= error %></div><% } %>
+    <% if (success) { %><div class="alert alert-success"><i class="bi bi-check-circle"></i> <%= success %></div><% } %>
+
+    <!-- COST PER UNIT SUMMARY -->
+    <% if (costing) { %>
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3"><div class="card shadow-sm border-0 h-100"><div class="card-body text-center"><small class="text-muted d-block">Material / unit (avg)</small><span class="fs-4 fw-bold"><%= Number(costing.perUnit.material).toFixed(2) %></span></div></div></div>
+        <div class="col-6 col-md-3"><div class="card shadow-sm border-0 h-100"><div class="card-body text-center"><small class="text-muted d-block">Overhead / unit</small><span class="fs-4 fw-bold"><%= Number(costing.perUnit.overhead).toFixed(2) %></span></div></div></div>
+        <div class="col-6 col-md-3"><div class="card shadow-sm border-0 h-100"><div class="card-body text-center"><small class="text-muted d-block">Labour / unit</small><span class="fs-4 fw-bold"><%= Number(costing.perUnit.labor).toFixed(2) %></span></div></div></div>
+        <div class="col-6 col-md-3"><div class="card shadow-sm border-0 h-100 bg-light"><div class="card-body text-center"><small class="text-muted d-block">Fully-loaded / unit</small><span class="fs-4 fw-bold text-success"><%= Number(costing.perUnit.fullyLoaded).toFixed(2) %></span></div></div></div>
+      </div>
+      <p class="text-muted small">Allocated across <strong><%= costing.unitsProduced %></strong> produced units. Overhead window total: <%= Number(costing.overhead.total).toFixed(2) %> (fixed <%= Number(costing.overhead.totalFixed).toFixed(2) %> + variable <%= Number(costing.overhead.totalVariable).toFixed(2) %>). Labour: <%= Number(costing.labor.total).toFixed(2) %> over <%= costing.labor.attendanceDays %> attendance day(s).</p>
+    <% } %>
+
+    <div class="row">
+      <!-- OVERHEAD COSTS -->
+      <div class="col-lg-7 mb-4">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-success text-white fw-semibold"><i class="bi bi-receipt-cutoff"></i> Fixed &amp; Variable Costs</div>
+          <div class="card-body">
+            <form action="/costs" method="POST" class="row g-2 align-items-end mb-3">
+              <div class="col-md-4"><label class="form-label small fw-semibold">Name *</label><input class="form-control form-control-sm" name="name" required placeholder="e.g. Rent, Electricity"></div>
+              <div class="col-md-2"><label class="form-label small fw-semibold">Kind</label><select class="form-select form-select-sm" name="kind"><% kinds.forEach(k => { %><option value="<%= k %>"><%= k %></option><% }); %></select></div>
+              <div class="col-md-2"><label class="form-label small fw-semibold">Period</label><select class="form-select form-select-sm" name="period"><% periods.forEach(p => { %><option value="<%= p %>"<%= p==='monthly'?' selected':'' %>><%= p.replace('_',' ') %></option><% }); %></select></div>
+              <div class="col-md-2"><label class="form-label small fw-semibold">Amount</label><input type="number" min="0" step="0.01" class="form-control form-control-sm" name="amount" value="0"></div>
+              <div class="col-md-2"><button class="btn btn-success btn-sm w-100"><i class="bi bi-plus"></i> Add</button></div>
+              <div class="col-12"><input class="form-control form-control-sm" name="note" placeholder="Note (optional)"></div>
+            </form>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover align-middle">
+                <thead class="table-light"><tr><th>Name</th><th>Kind</th><th>Period</th><th class="text-end">Amount</th><th></th></tr></thead>
+                <tbody>
+                  <% if (costs.length === 0) { %><tr><td colspan="5" class="text-muted text-center">No costs recorded yet.</td></tr><% } %>
+                  <% costs.forEach(c => { %>
+                    <tr>
+                      <td><%= c.name %><% if (c.note) { %><div class="small text-muted"><%= c.note %></div><% } %></td>
+                      <td><span class="badge <%= c.kind==='fixed'?'bg-secondary':'bg-info text-dark' %>"><%= c.kind %></span></td>
+                      <td class="small"><%= (c.period||'').replace('_',' ') %></td>
+                      <td class="text-end"><%= Number(c.amount).toFixed(2) %></td>
+                      <td class="text-end"><form action="/costs/<%= c.id %>?_method=DELETE" method="POST" onsubmit="return confirm('Remove this cost?')"><button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form></td>
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- WAGES -->
+      <div class="col-lg-5 mb-4">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-primary text-white fw-semibold"><i class="bi bi-wallet2"></i> Worker Wages</div>
+          <div class="card-body">
+            <% if (workers.length === 0) { %>
+              <p class="text-muted">No workers yet. Add them under <a href="/workers">Production Room Quality</a>.</p>
+            <% } else { %>
+              <table class="table table-sm align-middle">
+                <thead class="table-light"><tr><th>Worker</th><th>Wage</th><th>Type</th><th></th></tr></thead>
+                <tbody>
+                  <% workers.forEach(w => { %>
+                    <tr>
+                      <td><%= w.name %></td>
+                      <td colspan="3">
+                        <form action="/costs/wage" method="POST" class="d-flex gap-1">
+                          <input type="hidden" name="workerId" value="<%= w.id %>">
+                          <input type="number" min="0" step="0.01" class="form-control form-control-sm" name="wage" value="<%= w.wage || 0 %>" style="max-width:110px">
+                          <select class="form-select form-select-sm" name="wageType" style="max-width:110px">
+                            <% ['hourly','daily','monthly'].forEach(t => { %><option value="<%= t %>" <%= (w.wageType||'daily')===t?'selected':'' %>><%= t %></option><% }); %>
+                          </select>
+                          <button class="btn btn-sm btn-outline-primary"><i class="bi bi-save"></i></button>
+                        </form>
+                      </td>
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
+              <p class="text-muted small mb-0">Labour cost = wage × days present (from attendance). Hourly assumes 8h/day; monthly spread over 30 days.</p>
+            <% } %>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

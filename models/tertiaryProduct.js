@@ -684,6 +684,124 @@ class TertiaryProduct {
     }
     return errors;
   }
+
+  /**
+   * Sort batch entries by production date (oldest first) so sales always
+   * consume the earliest-produced stock — FIFO by production date.
+   */
+  static sortByProductionDate(entries) {
+    const ts = (v) => {
+      if (!v) return 0;
+      if (v.seconds) return v.seconds * 1000; // Firestore Timestamp
+      if (v.toDate) return v.toDate().getTime();
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    return [...entries].sort((a, b) => ts(a.createdAt) - ts(b.createdAt));
+  }
+
+  /**
+   * READ-ONLY allocation plan for selling `amount` units: which batch to take
+   * from first (oldest production date), how much from each, and whether another
+   * batch is needed to complete the order. Does not change any data.
+   *
+   * Returns { productId, productName, requested, allocations:[{batchNumber,
+   *           batchId, take, producedAt, remainingInBatch}], totalAllocated,
+   *           shortfall, fulfillable }.
+   */
+  static async planSale(id, amount) {
+    const product = await this.getById(id);
+    if (!product) throw new Error("Product not found");
+    const amt = roundQty(amount);
+    const ordered = this.sortByProductionDate(
+      normalizeBatchStock(product.batchStock || []),
+    );
+    const allocations = [];
+    let remaining = amt;
+    for (const entry of ordered) {
+      if (remaining <= EPSILON) break;
+      const avail = roundQty(entry.quantity);
+      if (avail <= EPSILON) continue;
+      const take = roundQty(Math.min(avail, remaining));
+      allocations.push({
+        batchId: entry.batchId,
+        batchNumber: entry.batchNumber,
+        take,
+        producedAt: entry.createdAt || null,
+        remainingInBatch: roundQty(avail - take),
+      });
+      remaining = roundQty(remaining - take);
+    }
+    return {
+      productId: id,
+      productName: product.name,
+      requested: amt,
+      allocations,
+      totalAllocated: roundQty(amt - remaining),
+      shortfall: roundQty(remaining),
+      fulfillable: remaining <= EPSILON,
+    };
+  }
+
+  /**
+   * Auto-sell a quantity without the caller picking a batch. Used when an
+   * invoice preparation task is completed on a production day. Deducts from
+   * batches OLDEST-PRODUCTION-FIRST (FIFO by production date), updates
+   * soldQuantity, and never lets a batch or the total go negative.
+   *
+   * Returns { product, soldFrom: [{batchNumber, qty}], shortfall }.
+   * If stock is insufficient it sells what it can and reports the shortfall
+   * rather than throwing, so a day can still be completed.
+   */
+  static async sellAnyBatch(id, amount) {
+    try {
+      const amt = roundQty(amount);
+      if (amt <= EPSILON)
+        return { product: await this.getById(id), soldFrom: [], shortfall: 0 };
+
+      const docRef = db.collection(this.collectionName).doc(id);
+      const soldFrom = [];
+      let shortfall = 0;
+
+      await db.runTransaction(async (t) => {
+        const doc = await t.get(docRef);
+        if (!doc.exists) throw new Error("Product not found");
+        const data = doc.data();
+        const currentQty = toNumber(data.quantity || 0);
+        const currentSold = toNumber(data.soldQuantity || 0);
+        // Deduct oldest-produced batches first.
+        const batchStock = this.sortByProductionDate(
+          normalizeBatchStock(data.batchStock || []),
+        ).map((e) => ({ ...e }));
+
+        let remaining = amt;
+        for (const entry of batchStock) {
+          if (remaining <= EPSILON) break;
+          const avail = roundQty(entry.quantity);
+          if (avail <= EPSILON) continue;
+          const take = Math.min(avail, remaining);
+          entry.quantity = roundQty(avail - take);
+          entry.updatedAt = new Date();
+          remaining = roundQty(remaining - take);
+          soldFrom.push({ batchNumber: entry.batchNumber, qty: take });
+        }
+
+        const soldQty = roundQty(amt - remaining);
+        shortfall = roundQty(remaining);
+
+        t.update(docRef, {
+          quantity: roundQty(Math.max(0, currentQty - soldQty)),
+          soldQuantity: roundQty(currentSold + soldQty),
+          batchStock: normalizeBatchStock(batchStock),
+          updatedAt: new Date(),
+        });
+      });
+
+      return { product: await this.getById(id), soldFrom, shortfall };
+    } catch (error) {
+      throw new Error(`Error auto-selling tertiary product: ${error.message}`);
+    }
+  }
 }
 
 module.exports = TertiaryProduct;

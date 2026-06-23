@@ -1,0 +1,288 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <% if (error) { %><div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <%= error %></div><% } %>
+    <% if (success) { %><div class="alert alert-success"><i class="bi bi-check-circle"></i> <%= success %></div><% } %>
+
+    <% if (mode === 'list') { %>
+      <div class="text-center mb-4">
+        <h2 class="fw-bold"><i class="bi bi-calendar-check text-primary"></i> Production Day</h2>
+        <p class="text-muted">Record attendance (with lateness), then start a day for smart, step-by-step tasks</p>
+      </div>
+
+      <div class="row">
+        <!-- ATTENDANCE -->
+        <div class="col-lg-6 mb-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header bg-warning text-dark fw-semibold"><i class="bi bi-people-fill"></i> Worker Attendance — <%= today %></div>
+            <div class="card-body">
+              <% if (workers.length === 0) { %>
+                <p class="text-muted">No workers yet. Add workers under <a href="/workers">Production Room Quality</a> first.</p>
+              <% } else {
+                   const recMap = {}; (attendance && attendance.records ? attendance.records : []).forEach(r => recMap[r.workerId] = r); %>
+                <form action="/production-day/attendance" method="POST">
+                  <input type="hidden" name="date" value="<%= today %>">
+                  <table class="table table-sm align-middle">
+                    <thead class="table-light"><tr><th>Worker</th><th class="text-center">Present</th><th class="text-center">Late</th><th>Mins late</th></tr></thead>
+                    <tbody>
+                      <% workers.forEach(w => { const r = recMap[w.id] || {}; %>
+                        <tr>
+                          <td><%= w.name %> <% if (w.role) { %><small class="text-muted">(<%= w.role %>)</small><% } %></td>
+                          <td class="text-center"><input class="form-check-input" type="checkbox" name="present" value="<%= w.id %>" <%= r.present ? 'checked' : '' %>></td>
+                          <td class="text-center"><input class="form-check-input" type="checkbox" name="late" value="<%= w.id %>" <%= r.late ? 'checked' : '' %>></td>
+                          <td style="width:110px"><input type="number" min="0" class="form-control form-control-sm" name="minutesLate_<%= w.id %>" value="<%= r.minutesLate || 0 %>"></td>
+                        </tr>
+                      <% }); %>
+                    </tbody>
+                  </table>
+                  <button class="btn btn-warning"><i class="bi bi-save"></i> Save Attendance</button>
+                </form>
+              <% } %>
+            </div>
+          </div>
+        </div>
+
+        <!-- START NEW DAY -->
+        <div class="col-lg-6 mb-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header bg-primary text-white fw-semibold"><i class="bi bi-play-circle"></i> Record a New Production Day</div>
+            <div class="card-body">
+              <p class="text-muted small">Analyses stock, sales &amp; consumption, pending invoices, your workflows, and carries over any unfinished tasks from previous days.</p>
+              <form action="/production-day/start" method="POST">
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-5">
+                    <label class="form-label fw-semibold">Target coverage (days)</label>
+                    <select class="form-select" name="targetDays" id="targetDays">
+                      <option value="7">1 week (7)</option>
+                      <option value="14" selected>2 weeks (14)</option>
+                      <option value="30">1 month (30)</option>
+                    </select>
+                  </div>
+                  <div class="col-md-7">
+                    <label class="form-label fw-semibold">Notes (optional)</label>
+                    <input type="text" class="form-control" name="notes" placeholder="Any notes for today">
+                  </div>
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                  <button type="button" class="btn btn-outline-primary" onclick="previewPlan()"><i class="bi bi-eye"></i> Preview Plan</button>
+                  <button type="submit" class="btn btn-primary"><i class="bi bi-play-fill"></i> Start Production Day</button>
+                </div>
+              </form>
+              <div id="previewArea" class="mt-3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RECENT DAYS -->
+      <div class="card shadow-sm">
+        <div class="card-header fw-semibold"><i class="bi bi-clock-history"></i> Recent Production Days</div>
+        <div class="card-body">
+          <% if (days.length === 0) { %><p class="text-muted mb-0">No production days recorded yet.</p><% } else { %>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead class="table-light"><tr><th>Date</th><th>Status</th><th>Tasks</th><th>Progress</th><th class="text-end">Actions</th></tr></thead>
+              <tbody>
+                <% days.forEach(d => { %>
+                  <tr>
+                    <td><strong><%= d.date %></strong></td>
+                    <td><span class="badge <%= d.status === 'completed' ? 'bg-success' : 'bg-primary' %>"><%= d.status %></span></td>
+                    <td><%= d.progress.completedTasks %>/<%= d.progress.totalTasks %></td>
+                    <td style="min-width:140px"><div class="progress" style="height:18px"><div class="progress-bar <%= d.progress.percent===100?'bg-success':'' %>" style="width:<%= d.progress.percent %>%"><%= d.progress.percent %>%</div></div></td>
+                    <td class="text-end">
+                      <a href="/production-day/<%= d.id %>" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-in-right"></i> Open</a>
+                      <form action="/production-day/<%= d.id %>?_method=DELETE" method="POST" class="d-inline" onsubmit="return confirm('Delete this day?')"><button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+    <% } else if (mode === 'execute' && day) { %>
+      <!-- ══════════ EXECUTE MODE ══════════ -->
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+          <h2 class="fw-bold mb-0"><i class="bi bi-calendar-check text-primary"></i> Production Day — <%= day.date %></h2>
+          <span class="badge <%= day.status === 'completed' ? 'bg-success' : 'bg-primary' %>"><%= day.status %></span>
+          <span class="text-muted ms-2"><i class="bi bi-people-fill"></i> <%= day.workersPresent %> present</span>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="/production-day" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
+          <% if (day.status !== 'completed') { %>
+          <form action="/production-day/<%= day.id %>/complete" method="POST" onsubmit="return confirm('Mark the whole day complete? Unfinished tasks will carry over to the next day you start.')">
+            <button class="btn btn-success"><i class="bi bi-check2-all"></i> Complete Day</button>
+          </form>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <div class="d-flex justify-content-between mb-1"><span class="fw-semibold">Overall progress</span><span id="dayPercent"><%= day.progress.percent %>%</span></div>
+          <div class="progress" style="height:22px"><div id="dayBar" class="progress-bar <%= day.progress.percent===100?'bg-success':'' %>" style="width:<%= day.progress.percent %>%"></div></div>
+          <div class="small text-muted mt-1"><span id="doneSteps"><%= day.progress.doneSteps %></span>/<%= day.progress.totalSteps %> steps across <%= day.progress.totalTasks %> task(s)</div>
+        </div>
+      </div>
+
+      <% day.tasks.forEach((task) => { %>
+        <div class="card shadow-sm mb-3" id="task_<%= task.id %>">
+          <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <span class="badge <%= task.source==='invoice' ? 'bg-primary' : (task.tier==='Tertiary'?'bg-danger':'bg-warning text-dark') %>"><%= task.tier || task.source %></span>
+              <strong class="ms-1"><%= task.productName %></strong>
+              <% if (task.carriedFrom) { %><span class="badge bg-dark ms-1" title="Carried from <%= task.carriedFrom %>"><i class="bi bi-arrow-repeat"></i> carried</span><% } %>
+            </div>
+            <div class="small text-muted">
+              <% if (task.workflowName) { %><i class="bi bi-diagram-2"></i> <%= task.workflowName %> · <% } %>
+              <i class="bi bi-people-fill"></i> <%= task.workersNeeded %> · <i class="bi bi-hourglass-split"></i> <%= task.expectedMinutes %> min
+              <span class="badge task-status bg-secondary ms-1"><%= task.status %></span>
+            </div>
+          </div>
+          <div class="card-body">
+            <% if (task.reason) { %><p class="text-muted small"><i class="bi bi-info-circle"></i> <%= task.reason %></p><% } %>
+            <% if (task.source==='invoice' && task.invoiceId) { %>
+              <button class="btn btn-sm btn-outline-info mb-2" onclick='showInvoicePlan("<%= task.invoiceId %>")'><i class="bi bi-box-seam"></i> Show batch preparation plan</button>
+              <div id="plan_<%= task.invoiceId %>" class="mb-2"></div>
+            <% } %>
+
+            <!-- Assignment + unit count controls -->
+            <div class="row g-2 align-items-end mb-3">
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold mb-1"><i class="bi bi-person-badge"></i> Assigned worker</label>
+                <select class="form-select form-select-sm" onchange="assignWorker('<%= day.id %>','<%= task.id %>',this.value)" <%= day.status==='completed'?'disabled':'' %>>
+                  <option value="">— unassigned —</option>
+                  <% workers.forEach(w => { %><option value="<%= w.id %>" <%= task.assignedWorkerId===w.id?'selected':'' %>><%= w.name %></option><% }); %>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small fw-semibold mb-1"><i class="bi bi-123"></i> Units to produce</label>
+                <div class="input-group input-group-sm">
+                  <input type="number" min="0" class="form-control" id="uc_<%= task.id %>" value="<%= task.unitCount || 0 %>" <%= day.status==='completed'?'disabled':'' %>>
+                  <button class="btn btn-outline-primary" onclick="setUnitCount('<%= day.id %>','<%= task.id %>')" <%= day.status==='completed'?'disabled':'' %>><i class="bi bi-arrow-repeat"></i> Recalc time</button>
+                </div>
+                <small class="text-muted">Step times are per unit; total updates with this count.</small>
+              </div>
+              <div class="col-md-5">
+                <% if (task.assignedWorkerName) { %><div class="small"><span class="badge bg-info text-dark"><i class="bi bi-person-check"></i> <%= task.assignedWorkerName %></span> owns this task</div><% } %>
+              </div>
+            </div>
+
+            <!-- Extra commands (idle worker re-assignment) -->
+            <% if ((task.assignments||[]).length) { %>
+              <div class="mb-2">
+                <% task.assignments.forEach(a => { %>
+                  <div class="alert alert-secondary py-1 px-2 small mb-1"><i class="bi bi-megaphone"></i> <strong><%= a.workerName || 'Worker' %>:</strong> <%= a.command %></div>
+                <% }); %>
+              </div>
+            <% } %>
+            <% if (day.status !== 'completed') { %>
+            <details class="mb-3"><summary class="small text-primary" style="cursor:pointer"><i class="bi bi-plus-circle"></i> Assign an idle worker a command for this task</summary>
+              <form action="/production-day/<%= day.id %>/command" method="POST" class="row g-2 mt-1">
+                <input type="hidden" name="taskId" value="<%= task.id %>">
+                <div class="col-md-4"><select class="form-select form-select-sm" name="workerId"><option value="">— worker —</option><% workers.forEach(w => { %><option value="<%= w.id %>"><%= w.name %></option><% }); %></select></div>
+                <div class="col-md-6"><input class="form-control form-control-sm" name="command" placeholder="e.g. Ahmed: help package the cakes"></div>
+                <div class="col-md-2"><button class="btn btn-sm btn-outline-primary w-100">Assign</button></div>
+              </form>
+            </details>
+            <% } %>
+
+            <% if (task.missingWorkflow) { %><div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle"></i> No workflow linked. <a href="/workflows" class="alert-link">Design one</a> for full step guidance.</div><% } %>
+
+            <% if ((task.steps||[]).length === 0) { %>
+              <p class="text-muted">No steps defined.</p>
+            <% } else { %>
+              <ul class="list-group">
+                <% task.steps.forEach((step, si) => {
+                     const prevDone = si === 0 || task.steps[si-1].status === 'done';
+                     const locked = step.status !== 'done' && !prevDone; %>
+                  <li class="list-group-item d-flex align-items-center gap-2 <%= step.status==='done'?'list-group-item-success':'' %>">
+                    <input class="form-check-input mt-0" type="checkbox" <%= step.status==='done'?'checked':'' %> <%= (locked || day.status==='completed')?'disabled':'' %>
+                      onchange="toggleStep('<%= day.id %>','<%= task.id %>','<%= step.id %>', this.checked, this)">
+                    <div class="flex-grow-1">
+                      <span class="fw-semibold"><%= si+1 %>. <%= step.name %></span>
+                      <% if (step.description) { %><div class="small text-muted"><%= step.description %></div><% } %>
+                      <div class="small text-muted"><i class="bi bi-hourglass"></i> <%= step.expectedMinutes %> min total (<%= step.minutesPerUnit %>/unit) · <i class="bi bi-person"></i> <%= step.workersNeeded %></div>
+                    </div>
+                    <% if (locked) { %><span class="badge bg-secondary"><i class="bi bi-lock"></i> finish previous</span><% } %>
+                  </li>
+                <% }); %>
+              </ul>
+            <% } %>
+          </div>
+        </div>
+      <% }); %>
+
+    <% } %>
+  </div>
+</div>
+
+<script>
+async function previewPlan(){
+  const days = document.getElementById('targetDays').value;
+  const area = document.getElementById('previewArea');
+  area.innerHTML = '<div class="text-muted small">Analysing…</div>';
+  try {
+    const plan = await (await fetch('/production-day/preview?targetDays='+days)).json();
+    if (plan.error) throw new Error(plan.error);
+    const carried = plan.carriedOver || 0;
+    if (!plan.tasks.length && !carried){ area.innerHTML='<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle"></i> Nothing to produce — coverage healthy, no pending invoices, nothing carried over.</div>'; return; }
+    let html = '<div class="alert alert-info py-2"><strong>'+plan.tasks.length+' new task(s)</strong>'+(carried?(' + '+carried+' carried over'):'')+' · '+plan.summary.productionTasks+' production · '+plan.summary.invoiceTasks+' invoice · peak '+plan.workersNeeded+' worker(s), '+plan.workersPresent+' present</div>';
+    if (plan.capacityWarning) html += '<div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle"></i> '+plan.capacityWarning+'</div>';
+    if (plan.noAttendance) html += '<div class="alert alert-secondary py-2 small"><i class="bi bi-info-circle"></i> No attendance saved today — capacity checks skipped.</div>';
+    html += '<ul class="list-group">'+plan.tasks.map(t=>'<li class="list-group-item d-flex justify-content-between"><span>'+(t.tier||t.source)+' · <strong>'+escapeH(t.productName)+'</strong>'+(t.quantity!=null?' × '+t.quantity:'')+'</span><span class="small text-muted">'+(t.workflowName||'no workflow')+'</span></li>').join('')+'</ul>';
+    area.innerHTML = html;
+  } catch(e){ area.innerHTML='<div class="alert alert-danger py-2 mb-0">'+e.message+'</div>'; }
+}
+function escapeH(s){return String(s||'').replace(/</g,'&lt;');}
+function fmtDate(v){ if(!v) return ''; try { if (v.seconds) return new Date(v.seconds*1000).toLocaleDateString(); return new Date(v).toLocaleDateString(); } catch { return ''; } }
+
+async function showInvoicePlan(invoiceId){
+  const area = document.getElementById('plan_'+invoiceId);
+  area.innerHTML = '<div class="text-muted small">Loading plan…</div>';
+  try {
+    const plan = await (await fetch('/invoices/'+invoiceId+'/plan')).json();
+    if (plan.error) throw new Error(plan.error);
+    let html = plan.fulfillable
+      ? '<div class="alert alert-success py-2 small mb-1"><i class="bi bi-check-circle"></i> Can be fully prepared from stock.</div>'
+      : '<div class="alert alert-warning py-2 small mb-1"><i class="bi bi-exclamation-triangle"></i> Some items short — produce more first.</div>';
+    plan.items.forEach(function(it){
+      html += '<div class="border rounded p-2 mb-1 small">';
+      html += '<div class="fw-semibold">'+escapeH(it.productName)+' — need '+it.quantity+'</div>';
+      if (it.allocations && it.allocations.length){
+        const steps = it.allocations.map(function(a,idx){ return (idx===0?'take ':'then take ')+a.take+' from '+a.batchNumber+' (made '+fmtDate(a.producedAt)+')'; }).join(', ');
+        html += '<div><i class="bi bi-card-checklist"></i> '+steps+'.</div>';
+      } else { html += '<div class="text-danger">No batch stock available.</div>'; }
+      if (it.shortfall > 0) html += '<div class="text-danger"><i class="bi bi-exclamation-triangle"></i> Short by '+it.shortfall+' — produce '+it.shortfall+' more of '+escapeH(it.productName)+'.</div>';
+      html += '</div>';
+    });
+    area.innerHTML = html;
+  } catch(e){ area.innerHTML = '<div class="alert alert-danger py-2 small">'+e.message+'</div>'; }
+}
+
+async function assignWorker(dayId, taskId, workerId){
+  try { await fetch('/production-day/'+dayId+'/assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId,workerId})}); }
+  catch(e){ alert('Failed to assign: '+e.message); }
+}
+async function setUnitCount(dayId, taskId){
+  const uc = document.getElementById('uc_'+taskId).value;
+  try { const r = await fetch('/production-day/'+dayId+'/unit-count',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId,unitCount:uc})}); const d = await r.json(); if(d.error) throw new Error(d.error); location.reload(); }
+  catch(e){ alert('Failed to update units: '+e.message); }
+}
+async function toggleStep(dayId, taskId, stepId, checked, el){
+  el.disabled = true;
+  try {
+    const res = await fetch('/production-day/'+dayId+'/step', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ taskId, stepId, done: checked })});
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (data.sideEffects && data.sideEffects.length) alert(data.sideEffects.join('\n'));
+    location.reload();
+  } catch(e){ alert('Failed to update step: '+e.message); el.checked=!checked; el.disabled=false; }
+}
+</script>
+
+<%- include('partials/footer') %>

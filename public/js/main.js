@@ -335,6 +335,9 @@ async function editProduct(id) {
     document.getElementById("edit_description").value =
       product.description || "";
     document.getElementById("edit_damages").value = 0;
+    const priceField = document.getElementById("edit_price");
+    if (priceField)
+      priceField.value = product.price != null ? product.price : "";
     document.getElementById("editProductForm").action =
       `/primary/${id}?_method=PUT`;
 

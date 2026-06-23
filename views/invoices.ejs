@@ -1,0 +1,217 @@
+<%- include('partials/header') %>
+
+<div class="row">
+  <div class="col-12">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold"><i class="bi bi-receipt text-primary"></i> Invoices</h2>
+      <p class="text-muted">Create customer invoices for selling tertiary products — pending invoices become preparation tasks on your production day</p>
+    </div>
+
+    <% if (error) { %><div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <%= error %></div><% } %>
+    <% if (success) { %><div class="alert alert-success"><i class="bi bi-check-circle"></i> <%= success %></div><% } %>
+
+    <div class="mb-3">
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#invoiceModal"><i class="bi bi-plus-circle"></i> New Invoice</button>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <% if (invoices.length === 0) { %>
+          <div class="text-center text-muted py-5"><i class="bi bi-receipt display-1 opacity-25"></i><p class="mt-3">No invoices yet.</p></div>
+        <% } else { %>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead class="table-light"><tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Items</th><th class="text-end">Total</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+              <tbody>
+                <% invoices.forEach(inv => { %>
+                  <tr>
+                    <td><strong><%= inv.invoiceNumber %></strong></td>
+                    <td><%= inv.customer.name %><% if (inv.customer.phone) { %><div class="small text-muted"><%= inv.customer.phone %></div><% } %></td>
+                    <td class="small text-muted"><%= inv.date %></td>
+                    <td class="small"><%= (inv.items||[]).length %> item(s)</td>
+                    <td class="text-end fw-semibold"><%= Number(inv.total||0).toFixed(2) %></td>
+                    <td>
+                      <span class="badge <%= inv.status==='paid'?'bg-success':(inv.status==='prepared'?'bg-info text-dark':'bg-warning text-dark') %>"><%= inv.status %></span>
+                    </td>
+                    <td class="text-end">
+                      <a href="/invoices/<%= inv.id %>/pdf" target="_blank" class="btn btn-sm btn-outline-secondary" title="PDF"><i class="bi bi-file-pdf"></i></a>
+                      <button class="btn btn-sm btn-outline-info" title="Preparation plan" onclick='showPlan("<%= inv.id %>")'><i class="bi bi-box-seam"></i></button>
+                      <div class="btn-group">
+                        <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">Status</button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <% ['pending','prepared','paid'].forEach(st => { %>
+                            <li><form action="/invoices/<%= inv.id %>/status" method="POST"><input type="hidden" name="status" value="<%= st %>"><button class="dropdown-item" type="submit"><%= st %></button></form></li>
+                          <% }); %>
+                        </ul>
+                      </div>
+                      <form action="/invoices/<%= inv.id %>?_method=DELETE" method="POST" class="d-inline" onsubmit="return confirm('Delete invoice?')">
+                        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ NEW INVOICE MODAL ══════════ -->
+<div class="modal fade" id="invoiceModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-receipt"></i> New Invoice <small class="ms-2 opacity-75"><%= nextNumber %></small></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="invoiceForm" method="POST" action="/invoices">
+        <input type="hidden" name="itemsJson" id="itemsJson">
+        <div class="modal-body">
+          <h6 class="fw-bold"><i class="bi bi-person"></i> Customer</h6>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6"><label class="form-label">Name <span class="text-danger">*</span></label><input class="form-control" name="customerName" required></div>
+            <div class="col-md-3"><label class="form-label">Phone</label><input class="form-control" name="customerPhone"></div>
+            <div class="col-md-3"><label class="form-label">Email</label><input type="email" class="form-control" name="customerEmail"></div>
+            <div class="col-12"><label class="form-label">Address</label><input class="form-control" name="customerAddress"></div>
+          </div>
+
+          <h6 class="fw-bold"><i class="bi bi-box-seam"></i> Line Items</h6>
+          <div id="itemsContainer"></div>
+          <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addItem()"><i class="bi bi-plus"></i> Add Item</button>
+
+          <div class="row g-3 mt-2">
+            <div class="col-md-3"><label class="form-label">Tax rate (%)</label><input type="number" min="0" step="0.01" class="form-control" name="taxRate" id="taxRate" value="0" oninput="recalc()"></div>
+            <div class="col-md-3"><label class="form-label">Date</label><input type="date" class="form-control" name="date"></div>
+            <div class="col-md-3"><label class="form-label">Due date</label><input type="date" class="form-control" name="dueDate"></div>
+            <div class="col-md-3 text-end">
+              <div class="small text-muted">Subtotal: <span id="subT">0.00</span></div>
+              <div class="small text-muted">Tax: <span id="taxT">0.00</span></div>
+              <div class="fw-bold fs-5">Total: <span id="totT">0.00</span></div>
+            </div>
+          </div>
+          <div class="mt-2"><label class="form-label">Notes</label><input class="form-control" name="notes"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Create Invoice</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const tertiaryProducts = <%- JSON.stringify((tertiaryProducts||[]).map(p => ({ id:p.id, name:p.name }))) %>;
+let items = [];
+
+function renderItems(){
+  const c = document.getElementById('itemsContainer');
+  const opts = tertiaryProducts.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  c.innerHTML = items.map((it,i)=>`
+    <div class="row g-2 align-items-end mb-2">
+      <div class="col-md-5">
+        <select class="form-select form-select-sm" onchange="pickProduct(${i}, this)">
+          <option value="">— choose tertiary product * —</option>
+          ${opts}
+        </select>
+      </div>
+      <div class="col-md-2"><div class="input-group input-group-sm"><span class="input-group-text">Qty</span><input type="number" min="0" step="0.01" class="form-control" value="${it.quantity}" oninput="upd(${i},'quantity',this.value)"></div></div>
+      <div class="col-md-3"><div class="input-group input-group-sm"><span class="input-group-text">Unit price</span><input type="number" min="0" step="0.01" class="form-control" value="${it.unitPrice}" oninput="upd(${i},'unitPrice',this.value)"></div></div>
+      <div class="col-md-1 text-end small">${(Number(it.quantity)*Number(it.unitPrice)||0).toFixed(2)}</div>
+      <div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="rm(${i})"><i class="bi bi-trash"></i></button></div>
+    </div>`).join('');
+  // restore selected product in each row's select
+  c.querySelectorAll('select').forEach((sel, i) => { if (items[i] && items[i].productId) sel.value = items[i].productId; });
+  recalc();
+}
+function pickProduct(i, sel){
+  const p = tertiaryProducts.find(x=>x.id===sel.value);
+  items[i].productId = sel.value || null;
+  items[i].productName = p ? p.name : '';
+  recalc();
+}
+function esc(s){return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+function addItem(){ items.push({productId:null,productName:'',quantity:1,unitPrice:0}); renderItems(); }
+function upd(i,f,v){ items[i][f]=v; if(f==='quantity'||f==='unitPrice') renderItems(); else recalc(); }
+function rm(i){ items.splice(i,1); renderItems(); }
+function recalc(){
+  const sub = items.reduce((s,it)=>s+(Number(it.quantity)*Number(it.unitPrice)||0),0);
+  const rate = Number(document.getElementById('taxRate').value)||0;
+  const tax = sub*rate/100;
+  document.getElementById('subT').textContent=sub.toFixed(2);
+  document.getElementById('taxT').textContent=tax.toFixed(2);
+  document.getElementById('totT').textContent=(sub+tax).toFixed(2);
+}
+document.getElementById('invoiceForm').addEventListener('submit', function(e){
+  const valid = items.filter(it => it.productId && Number(it.quantity)>0);
+  if (!valid.length){ e.preventDefault(); alert('Choose at least one tertiary product with a quantity.'); return; }
+  document.getElementById('itemsJson').value = JSON.stringify(valid);
+});
+document.addEventListener('DOMContentLoaded', function(){ addItem(); });
+</script>
+
+<!-- ══════════ PREPARATION PLAN MODAL ══════════ -->
+<div class="modal fade" id="planModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-dark">
+        <h5 class="modal-title"><i class="bi bi-box-seam"></i> Preparation Plan</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="planBody">
+        <div class="text-muted">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function fmtDate(v){
+  if(!v) return '';
+  try { if (v.seconds) return new Date(v.seconds*1000).toLocaleDateString(); return new Date(v).toLocaleDateString(); } catch { return ''; }
+}
+async function showPlan(id){
+  const body = document.getElementById('planBody');
+  body.innerHTML = '<div class="text-muted">Loading…</div>';
+  new bootstrap.Modal(document.getElementById('planModal')).show();
+  try {
+    const plan = await (await fetch('/invoices/'+id+'/plan')).json();
+    if (plan.error) throw new Error(plan.error);
+    let html = '<p class="mb-2"><strong>'+plan.invoiceNumber+'</strong> — '+escapeP(plan.customer && plan.customer.name || '')+'</p>';
+    if (plan.fulfillable) html += '<div class="alert alert-success py-2"><i class="bi bi-check-circle"></i> All items can be fully prepared from current stock.</div>';
+    else html += '<div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle"></i> Some items are short — you will need to produce more before completing.</div>';
+    plan.items.forEach(function(it){
+      html += '<div class="border rounded p-2 mb-2">';
+      html += '<div class="fw-semibold">'+escapeP(it.productName)+' — need '+it.quantity+'</div>';
+      if (it.unlinked){ html += '<div class="small text-danger">Not linked to a recorded tertiary product — cannot auto-allocate.</div></div>'; return; }
+      if (it.allocations && it.allocations.length){
+        html += '<table class="table table-sm mb-1"><thead><tr><th>Take</th><th>From batch</th><th>Produced</th><th>Left in batch</th></tr></thead><tbody>';
+        it.allocations.forEach(function(a, idx){
+          html += '<tr>'+
+            '<td><span class="badge bg-primary">'+a.take+'</span></td>'+
+            '<td>'+(idx===0?'<i class="bi bi-1-circle text-success"></i> ':'<i class="bi bi-plus-circle text-warning"></i> ')+a.batchNumber+'</td>'+
+            '<td class="small text-muted">'+fmtDate(a.producedAt)+'</td>'+
+            '<td class="small">'+a.remainingInBatch+'</td></tr>';
+        });
+        html += '</tbody></table>';
+        // human instruction line
+        const steps = it.allocations.map(function(a){ return 'take '+a.take+' from '+a.batchNumber; }).join(', then ');
+        html += '<div class="small"><i class="bi bi-card-checklist"></i> To prepare <strong>'+escapeP(it.productName)+'</strong>: '+steps+'.</div>';
+      } else {
+        html += '<div class="small text-danger">No stock available in any batch.</div>';
+      }
+      if (it.shortfall > 0){
+        html += '<div class="small text-danger mt-1"><i class="bi bi-exclamation-triangle"></i> Short by <strong>'+it.shortfall+'</strong> — produce '+it.shortfall+' more of '+escapeP(it.productName)+' to complete this order.</div>';
+      }
+      html += '</div>';
+    });
+    body.innerHTML = html;
+  } catch(e){ body.innerHTML = '<div class="alert alert-danger">'+e.message+'</div>'; }
+}
+function escapeP(s){return String(s||'').replace(/</g,'&lt;');}
+</script>
+
+<%- include('partials/footer') %>

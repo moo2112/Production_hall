@@ -305,6 +305,16 @@ router.get("/", async (req, res) => {
       PrimaryProduct.getAll(),
       Batch.getAll(),
     ]);
+    // Attach calculated unit cost (derived from primary prices) so the view can
+    // show production cost per secondary product. Calculation lives in the
+    // shared backend cost service, not in the template.
+    const costService = require("../services/costService");
+    const priceMap = costService.buildPrimaryPriceMap(primaryProducts);
+    products.forEach((p) => {
+      const c = costService.secondaryUnitCost(p, priceMap);
+      p.unitCost = c.unitCost;
+      p.costMissingPrice = c.missingPrices.length > 0;
+    });
     res.render("secondary", {
       title: "Secondary Products",
       products,
