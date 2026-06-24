@@ -345,19 +345,20 @@ class Worker {
     const rounds = Array.isArray(worker.qualityRounds)
       ? worker.qualityRounds.length
       : 0;
-    const unitsProduced = tasks.reduce(
-      (s, t) => s + (parseFloat(t.quantity) || 0),
-      0,
-    );
+    // Number of batches this worker produced (the headline productivity metric).
+    const batchesMade = Array.isArray(worker.batchesMade)
+      ? worker.batchesMade.length
+      : 0;
     const tasksCompleted = tasks.length;
-    // Errors are penalised at 5 points each so quality dominates throughput.
+    // Score rewards completed tasks and batches made and passed quality rounds,
+    // and penalises production errors (each error −5 so quality dominates).
     const score = Math.round(
-      tasksCompleted * 10 + unitsProduced * 0.1 + rounds * 2 - errors * 5,
+      tasksCompleted * 10 + batchesMade * 5 + rounds * 2 - errors * 5,
     );
     return {
       score,
       tasksCompleted,
-      unitsProduced,
+      batchesMade,
       errors,
       qualityRounds: rounds,
     };

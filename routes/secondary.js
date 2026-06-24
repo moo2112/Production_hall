@@ -341,7 +341,7 @@ router.get("/", async (req, res) => {
 // ── POST /secondary — ENCODE only (no stock deduction) ───────────────────────
 router.post("/", async (req, res) => {
   try {
-    const { name, description, componentsJson } = req.body;
+    const { name, description, componentsJson, preparationCost } = req.body;
     const components = parseJson(componentsJson, []);
 
     const errors = SecondaryProduct.validate({ name, description, components });
@@ -501,7 +501,14 @@ router.post("/:id/produce", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, quantity, damages, componentsJson } = req.body;
+    const {
+      name,
+      description,
+      quantity,
+      damages,
+      componentsJson,
+      preparationCost,
+    } = req.body;
     const components = parseJson(componentsJson, []);
 
     const errors = SecondaryProduct.validate({ name, description, components });

@@ -160,7 +160,7 @@
           <p class="text-muted small">Score rewards completed tasks &amp; units produced and quality rounds, and penalises production errors — so reliable, low-error workers rank highest.</p>
           <div class="table-responsive">
             <table class="table table-hover align-middle">
-              <thead class="table-light"><tr><th>#</th><th>Worker</th><th>Role</th><th class="text-end">Tasks</th><th class="text-end">Units</th><th class="text-end">Quality rounds</th><th class="text-end">Errors</th><th class="text-end">Score</th></tr></thead>
+              <thead class="table-light"><tr><th>#</th><th>Worker</th><th>Role</th><th class="text-end">Tasks</th><th class="text-end">Batches</th><th class="text-end">Quality rounds</th><th class="text-end">Errors</th><th class="text-end">Score</th></tr></thead>
               <tbody>
                 <% stats.workerRanking.forEach((w, i) => { %>
                   <tr>
@@ -168,7 +168,7 @@
                     <td class="fw-semibold"><%= w.name %></td>
                     <td class="small text-muted"><%= w.role || '—' %></td>
                     <td class="text-end"><%= w.tasksCompleted %></td>
-                    <td class="text-end"><%= Number(w.unitsProduced).toFixed(0) %></td>
+                    <td class="text-end"><%= w.batchesMade %></td>
                     <td class="text-end"><%= w.qualityRounds %></td>
                     <td class="text-end <%= w.errors>0?'text-danger':'' %>"><%= w.errors %></td>
                     <td class="text-end fw-bold"><%= w.score %></td>

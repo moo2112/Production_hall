@@ -74,6 +74,14 @@
                           <span class="badge bg-success text-white me-1"><%= comp.name %> × <%= comp.usedQuantity %></span>
                         <% }); %>
                       <% } else { %><span class="text-muted small">-</span><% } %>
+                      <% if (product.unresolvedComponents && product.unresolvedComponents.length > 0) { %>
+                        <div class="small text-danger mt-1">
+                          <i class="bi bi-exclamation-triangle-fill"></i>
+                          <%= product.unresolvedComponents.length %> component link(s) broken —
+                          <% product.unresolvedComponents.forEach(u => { %><span class="badge bg-danger me-1"><%= u.productName || 'unknown' %> × <%= u.quantity %></span><% }); %>
+                          <button class="btn btn-sm btn-outline-danger ms-1 py-0" onclick="editSecondaryProduct('<%= product.id %>')">Re-link</button>
+                        </div>
+                      <% } %>
                     </td>
                     <td>
                       <span class="badge bg-info text-dark fs-6"><i class="bi bi-cash-stack"></i> <%= Number(product.unitCost || 0).toFixed(2) %></span>
@@ -308,6 +316,17 @@
             <textarea class="form-control" id="edit_description" name="description" rows="2"></textarea>
           </div>
           <label class="form-label fw-semibold">Primary Component Recipe <span class="text-danger">*</span></label>
+          <div class="alert alert-light border d-flex align-items-center gap-2 py-2 mb-2">
+            <i class="bi bi-clipboard-plus text-success"></i>
+            <span class="small">Copy recipe from another product:</span>
+            <select class="form-select form-select-sm" id="copyRecipeFrom" style="max-width:240px">
+              <option value="">— choose a product —</option>
+              <% products.forEach(function(p){ if ((p.components||[]).length){ %>
+                <option value="<%= p.id %>"><%= p.name %></option>
+              <% }}); %>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-success" onclick="copyRecipeIntoEdit()"><i class="bi bi-clipboard-check"></i> Copy</button>
+          </div>
           <p class="text-muted small mb-2"><i class="bi bi-info-circle"></i> Add/remove components and adjust quantities below.</p>
           <div class="border rounded p-2 mb-2" style="max-height:220px;overflow-y:auto" id="editComponentsList">
             <p class="text-muted small mb-0">Loading…</p>
@@ -343,6 +362,18 @@
 
 <script>
 const primaryProducts = <%- JSON.stringify(primaryProducts) %>;
+// Recipes of existing products, for the "Copy recipe from another product" tool.
+var productRecipes = {};
+<% products.forEach(function(p){ %>
+productRecipes['<%= p.id %>'] = <%- JSON.stringify((p.components||[]).map(function(c){ return { productId:c.productId, productName:c.productName||'', quantity:c.quantity }; })) %>;
+<% }); %>
+function copyRecipeIntoEdit(){
+  var sel = document.getElementById('copyRecipeFrom');
+  if (!sel || !sel.value) { alert('Choose a product to copy the recipe from.'); return; }
+  var comps = productRecipes[sel.value] || [];
+  if (!comps.length) { alert('That product has no recipe to copy.'); return; }
+  if (typeof applyEditRecipe === 'function') applyEditRecipe(comps);
+}
 let selectedComponents = {};
 let creditComponentDetails = [];
 
@@ -470,7 +501,7 @@ function updateSelectedDisplay() {
 }
 
 document.getElementById('encodeForm').addEventListener('submit', function(e) {
-  const arr = Object.values(selectedComponents).map(c => ({ productId: c.productId, quantity: c.quantity }));
+  const arr = Object.values(selectedComponents).map(c => ({ productId: c.productId, productName: c.name, quantity: c.quantity }));
   if (arr.length === 0) { e.preventDefault(); alert('Please select at least one primary component.'); return; }
   document.getElementById('componentsJson').value = JSON.stringify(arr);
 });

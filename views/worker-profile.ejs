@@ -46,7 +46,7 @@
         <div class="col-md-7">
           <div class="row text-center">
             <div class="col"><div class="text-muted small">Tasks done</div><div class="fw-bold fs-5"><%= rank.tasksCompleted %></div></div>
-            <div class="col"><div class="text-muted small">Units made</div><div class="fw-bold fs-5"><%= Number(rank.unitsProduced).toFixed(0) %></div></div>
+            <div class="col"><div class="text-muted small">Batches made</div><div class="fw-bold fs-5"><%= rank.batchesMade %></div></div>
             <div class="col"><div class="text-muted small">Quality rounds</div><div class="fw-bold fs-5"><%= rank.qualityRounds %></div></div>
             <div class="col"><div class="text-muted small">Errors</div><div class="fw-bold fs-5 <%= rank.errors>0?'text-danger':'text-success' %>"><%= rank.errors %></div></div>
           </div>

@@ -242,6 +242,72 @@ class TertiaryProduct {
     }
   }
 
+  /**
+   * Resolve a tertiary recipe against current SECONDARY products, healing broken
+   * links (stale productId from a re-created secondary, alternate id keys, or a
+   * name match). Returns { healed, componentDetails, unresolved }.
+   */
+  static async resolveComponents(rawComponents) {
+    const components = Array.isArray(rawComponents) ? rawComponents : [];
+    if (components.length === 0)
+      return { healed: [], componentDetails: [], unresolved: [] };
+
+    const snap = await db.collection("secondaryProducts").get();
+    const byId = {};
+    const byName = {};
+    snap.docs.forEach((d) => {
+      const data = { id: d.id, ...d.data() };
+      byId[d.id] = data;
+      if (data.name) byName[String(data.name).trim().toLowerCase()] = data;
+    });
+
+    const healed = [];
+    const componentDetails = [];
+    const unresolved = [];
+
+    for (const comp of components) {
+      const qty = comp.quantity != null ? comp.quantity : comp.usedQuantity;
+      const candidateId =
+        comp.productId ||
+        comp.id ||
+        comp.secondaryId ||
+        comp.secondaryProductId;
+      let sec = candidateId ? byId[candidateId] : null;
+      if (!sec) {
+        const nm = String(comp.productName || comp.name || "")
+          .trim()
+          .toLowerCase();
+        if (nm && byName[nm]) sec = byName[nm];
+      }
+      if (sec) {
+        healed.push({
+          productId: sec.id,
+          productName: sec.name,
+          quantity: qty,
+        });
+        componentDetails.push({
+          id: sec.id,
+          ...sec,
+          quantity: toNumber(sec.quantity || 0),
+          batchStock: normalizeBatchStock(sec.batchStock || []),
+          usedQuantity: qty,
+        });
+      } else {
+        healed.push({
+          productId: comp.productId || null,
+          productName: comp.productName || comp.name || "",
+          quantity: qty,
+        });
+        unresolved.push({
+          productId: comp.productId || candidateId || null,
+          productName: comp.productName || comp.name || "",
+          quantity: qty,
+        });
+      }
+    }
+    return { healed, componentDetails, unresolved };
+  }
+
   static async getAll() {
     try {
       const snapshot = await db
@@ -251,33 +317,18 @@ class TertiaryProduct {
       const products = [];
       for (const doc of snapshot.docs) {
         const data = doc.data();
-        const componentDetails = [];
-        if (data.components && data.components.length > 0) {
-          for (const comp of data.components) {
-            const component = await db
-              .collection("secondaryProducts")
-              .doc(comp.productId)
-              .get();
-            if (component.exists) {
-              const componentData = component.data();
-              componentDetails.push({
-                id: component.id,
-                ...componentData,
-                quantity: toNumber(componentData.quantity || 0),
-                batchStock: normalizeBatchStock(componentData.batchStock || []),
-                usedQuantity: comp.quantity,
-              });
-            }
-          }
-        }
+        const { healed, componentDetails, unresolved } =
+          await this.resolveComponents(data.components);
         const batchStock = normalizeBatchStock(data.batchStock || []);
         products.push({
           id: doc.id,
           ...data,
+          components: healed,
           quantity: toNumber(data.quantity || 0),
           batchStock,
           batchStockTotal: this.getBatchTotal(batchStock),
           componentDetails,
+          unresolvedComponents: unresolved,
         });
       }
       return products;
@@ -291,33 +342,18 @@ class TertiaryProduct {
       const doc = await db.collection(this.collectionName).doc(id).get();
       if (!doc.exists) return null;
       const data = doc.data();
-      const componentDetails = [];
-      if (data.components && data.components.length > 0) {
-        for (const comp of data.components) {
-          const component = await db
-            .collection("secondaryProducts")
-            .doc(comp.productId)
-            .get();
-          if (component.exists) {
-            const componentData = component.data();
-            componentDetails.push({
-              id: component.id,
-              ...componentData,
-              quantity: toNumber(componentData.quantity || 0),
-              batchStock: normalizeBatchStock(componentData.batchStock || []),
-              usedQuantity: comp.quantity,
-            });
-          }
-        }
-      }
+      const { healed, componentDetails, unresolved } =
+        await this.resolveComponents(data.components);
       const batchStock = normalizeBatchStock(data.batchStock || []);
       return {
         id: doc.id,
         ...data,
+        components: healed,
         quantity: toNumber(data.quantity || 0),
         batchStock,
         batchStockTotal: this.getBatchTotal(batchStock),
         componentDetails,
+        unresolvedComponents: unresolved,
       };
     } catch (error) {
       throw new Error(`Error fetching tertiary product: ${error.message}`);

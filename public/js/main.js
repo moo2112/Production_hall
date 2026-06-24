@@ -99,7 +99,7 @@
 //   listEl.querySelectorAll(".ec-add").forEach((btn) => {
 //     btn.addEventListener("click", function () {
 //       const pid = this.dataset.id;
-//       const row = this.closest("[data-id]");
+//       const row = this.closest(".ec-row");
 //       editSelectedComps[pid] = {
 //         productId: pid,
 //         quantity: 1,
@@ -139,7 +139,7 @@
 //         if (editSelectedComps[pid]) editSelectedComps[pid].quantity = v - 1;
 //       } else {
 //         delete editSelectedComps[pid];
-//         const row = this.closest("[data-id]");
+//         const row = this.closest(".ec-row");
 //         row.querySelector(".ec-add").style.display = "";
 //         this.style.display = "none";
 //         inp.style.display = "none";
@@ -384,7 +384,7 @@ function buildEditComponentPicker(
 
     const row = document.createElement("div");
     row.className =
-      "d-flex align-items-center justify-content-between p-1 rounded mb-1" +
+      "ec-row d-flex align-items-center justify-content-between p-1 rounded mb-1" +
       (isSelected ? " bg-light" : "");
     row.dataset.id = p.id;
     row.dataset.name = p.name;
@@ -403,7 +403,7 @@ function buildEditComponentPicker(
   listEl.querySelectorAll(".ec-add").forEach((btn) => {
     btn.addEventListener("click", function () {
       const pid = this.dataset.id;
-      const row = this.closest("[data-id]");
+      const row = this.closest(".ec-row");
       editSelectedComps[pid] = {
         productId: pid,
         quantity: 1,
@@ -441,7 +441,7 @@ function buildEditComponentPicker(
         if (editSelectedComps[pid]) editSelectedComps[pid].quantity = v - 1;
       } else {
         delete editSelectedComps[pid];
-        const row = this.closest("[data-id]");
+        const row = this.closest(".ec-row");
         row.querySelector(".ec-add").style.display = "";
         this.style.display = "none";
         inp.style.display = "none";
@@ -487,6 +487,19 @@ function refreshEditSelectedDisplay(editSelectedComps, badgeClass) {
   }
 }
 
+// Rebuild the edit-modal recipe picker from a copied components array. Used by
+// the "Copy recipe from another product" control in the secondary edit modal.
+function applyEditRecipe(components) {
+  window.__editSelectedComps = buildEditComponentPicker(
+    typeof primaryProducts !== "undefined" ? primaryProducts : [],
+    components || [],
+    window.__editPrimaryIcon ||
+      '<i class="bi bi-circle-fill text-success me-1" style="font-size:.6rem"></i>',
+    "bg-success",
+    "No primary products available.",
+  );
+}
+
 // Edit Secondary Product
 async function editSecondaryProduct(id) {
   try {
@@ -506,17 +519,20 @@ async function editSecondaryProduct(id) {
     document.getElementById("editProductForm").action =
       `/secondary/${id}?_method=PUT`;
 
-    const editSelectedComps = buildEditComponentPicker(
+    window.__editPrimaryIcon =
+      '<i class="bi bi-circle-fill text-success me-1" style="font-size:.6rem"></i>';
+    window.__editSelectedComps = buildEditComponentPicker(
       typeof primaryProducts !== "undefined" ? primaryProducts : [],
       product.components || [],
-      '<i class="bi bi-circle-fill text-success me-1" style="font-size:.6rem"></i>',
+      window.__editPrimaryIcon,
       "bg-success",
       "No primary products available.",
     );
 
     document.getElementById("editProductForm").onsubmit = function (e) {
-      const arr = Object.values(editSelectedComps).map((c) => ({
+      const arr = Object.values(window.__editSelectedComps).map((c) => ({
         productId: c.productId,
+        productName: c.name,
         quantity: c.quantity,
       }));
       if (arr.length === 0) {
@@ -571,6 +587,7 @@ async function editTertiaryProduct(id) {
     document.getElementById("editProductForm").onsubmit = function (e) {
       const arr = Object.values(editSelectedComps).map((c) => ({
         productId: c.productId,
+        productName: c.name,
         quantity: c.quantity,
       }));
       if (arr.length === 0) {

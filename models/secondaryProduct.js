@@ -724,6 +724,73 @@ class SecondaryProduct {
     }
   }
 
+  /**
+   * Resolve a recipe (raw `components` array) against the current primary
+   * products, healing broken links. For each component it tries, in order:
+   *   1. the stored productId (the normal case)
+   *   2. alternate id keys from older/imported data (id, primaryId, primaryProductId)
+   *   3. a name match (productName/name) against current primaries
+   * This recovers products whose primary was re-created with a new document id,
+   * or whose components were saved by an older schema.
+   *
+   * Returns { healed, componentDetails, unresolved } where `healed` carries a
+   * valid productId + productName wherever a match was found.
+   */
+  static async resolveComponents(rawComponents) {
+    const components = Array.isArray(rawComponents) ? rawComponents : [];
+    if (components.length === 0)
+      return { healed: [], componentDetails: [], unresolved: [] };
+
+    // Load all primaries once and index by id + lower-cased name.
+    const primaries = await PrimaryProduct.getAll().catch(() => []);
+    const byId = {};
+    const byName = {};
+    primaries.forEach((p) => {
+      byId[p.id] = p;
+      if (p.name) byName[String(p.name).trim().toLowerCase()] = p;
+    });
+
+    const healed = [];
+    const componentDetails = [];
+    const unresolved = [];
+
+    for (const comp of components) {
+      const qty = comp.quantity != null ? comp.quantity : comp.usedQuantity;
+      // Try every plausible id key, then fall back to a name match.
+      const candidateId =
+        comp.productId || comp.id || comp.primaryId || comp.primaryProductId;
+      let primary = candidateId ? byId[candidateId] : null;
+      if (!primary) {
+        const nm = String(comp.productName || comp.name || "")
+          .trim()
+          .toLowerCase();
+        if (nm && byName[nm]) primary = byName[nm];
+      }
+
+      if (primary) {
+        healed.push({
+          productId: primary.id,
+          productName: primary.name,
+          quantity: qty,
+        });
+        componentDetails.push({ ...primary, usedQuantity: qty });
+      } else {
+        // Keep the original so nothing is lost, and flag it for the UI.
+        healed.push({
+          productId: comp.productId || null,
+          productName: comp.productName || comp.name || "",
+          quantity: qty,
+        });
+        unresolved.push({
+          productId: comp.productId || candidateId || null,
+          productName: comp.productName || comp.name || "",
+          quantity: qty,
+        });
+      }
+    }
+    return { healed, componentDetails, unresolved };
+  }
+
   // Get all secondary products with component details
   static async getAll() {
     try {
@@ -735,29 +802,20 @@ class SecondaryProduct {
       const products = [];
       for (const doc of snapshot.docs) {
         const data = doc.data();
-
-        // Fetch component details with quantities
-        const componentDetails = [];
-        if (data.components && data.components.length > 0) {
-          for (const comp of data.components) {
-            const component = await PrimaryProduct.getById(comp.productId);
-            if (component) {
-              componentDetails.push({
-                ...component,
-                usedQuantity: comp.quantity,
-              });
-            }
-          }
-        }
-
+        const { healed, componentDetails, unresolved } =
+          await this.resolveComponents(data.components);
         const batchStock = normalizeBatchStock(data.batchStock || []);
         products.push({
           id: doc.id,
           ...data,
+          // Use healed components so a re-created/renamed primary still links
+          // and the cost calculator can find a valid productId.
+          components: healed,
           quantity: toNumber(data.quantity || 0),
           batchStock,
           batchStockTotal: this.getBatchTotal(batchStock),
           componentDetails,
+          unresolvedComponents: unresolved,
         });
       }
       return products;
@@ -776,28 +834,20 @@ class SecondaryProduct {
 
       const data = doc.data();
 
-      // Fetch component details with quantities
-      const componentDetails = [];
-      if (data.components && data.components.length > 0) {
-        for (const comp of data.components) {
-          const component = await PrimaryProduct.getById(comp.productId);
-          if (component) {
-            componentDetails.push({
-              ...component,
-              usedQuantity: comp.quantity,
-            });
-          }
-        }
-      }
+      // Resolve/heal components against current primaries (see resolveComponents).
+      const { healed, componentDetails, unresolved } =
+        await this.resolveComponents(data.components);
 
       const batchStock = normalizeBatchStock(data.batchStock || []);
       return {
         id: doc.id,
         ...data,
+        components: healed,
         quantity: toNumber(data.quantity || 0),
         batchStock,
         batchStockTotal: this.getBatchTotal(batchStock),
         componentDetails,
+        unresolvedComponents: unresolved,
       };
     } catch (error) {
       throw new Error(`Error fetching secondary product: ${error.message}`);
