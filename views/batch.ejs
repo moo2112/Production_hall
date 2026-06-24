@@ -39,8 +39,21 @@
             <p class="mt-3">No batches recorded yet. Click "New Batch Record" to get started.</p>
           </div>
         <% } else { %>
+          <!-- Search across all batches -->
+          <div class="row mb-3">
+            <div class="col-md-6 col-lg-5">
+              <div class="input-group">
+                <span class="input-group-text" style="background:#7c3aed;color:#fff"><i class="bi bi-search"></i></span>
+                <input type="text" id="batchSearch" class="form-control" placeholder="Search batches — number, item, type, status, date…" autocomplete="off">
+                <button class="btn btn-outline-secondary" type="button" id="batchSearchClear" title="Clear"><i class="bi bi-x-lg"></i></button>
+              </div>
+            </div>
+            <div class="col-md-6 col-lg-7 d-flex align-items-center">
+              <small class="text-muted ms-md-2" id="batchSearchCount"></small>
+            </div>
+          </div>
           <div class="table-responsive">
-            <table class="table table-hover align-middle">
+            <table class="table table-hover align-middle" id="batchTable">
               <thead class="table-light">
                 <tr>
                   <th>#</th>
@@ -53,7 +66,7 @@
                   <th class="text-end">Actions</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="batchTableBody">
                 <% batches.forEach(function(batch, index) {
                   var qs = batch.qualityStatus || null;
                   var hasReport = (qs === 'rejected') && batch.rejectionReport;
@@ -166,6 +179,7 @@
                     </td>
                   </tr>
                 <% }); %>
+                <tr id="batchNoResults" style="display:none"><td colspan="8" class="text-center text-muted py-4"><i class="bi bi-search"></i> No batches match your search.</td></tr>
               </tbody>
             </table>
           </div>
@@ -813,4 +827,36 @@
   }
 </script>
 
+<script>
+// ── Search across all batches (client-side filter over the rendered table) ────
+(function(){
+  var input = document.getElementById('batchSearch');
+  if (!input) return; // table not present (no batches)
+  var body = document.getElementById('batchTableBody');
+  var noResults = document.getElementById('batchNoResults');
+  var count = document.getElementById('batchSearchCount');
+  var clearBtn = document.getElementById('batchSearchClear');
+  // Only the real data rows (exclude the no-results row).
+  var rows = Array.prototype.slice.call(body.querySelectorAll('tr')).filter(function(r){ return r.id !== 'batchNoResults'; });
+
+  function apply(){
+    var q = (input.value || '').trim().toLowerCase();
+    var shown = 0;
+    rows.forEach(function(row){
+      // Match against the full visible text of the row (batch number, item,
+      // type, template, QC status, date — everything in the row).
+      var text = (row.textContent || '').toLowerCase();
+      var match = q === '' || text.indexOf(q) !== -1;
+      row.style.display = match ? '' : 'none';
+      if (match) shown++;
+    });
+    noResults.style.display = shown === 0 ? '' : 'none';
+    if (count) count.textContent = q === '' ? (rows.length + ' batch(es)') : (shown + ' of ' + rows.length + ' match');
+  }
+
+  input.addEventListener('input', apply);
+  if (clearBtn) clearBtn.addEventListener('click', function(){ input.value=''; apply(); input.focus(); });
+  apply(); // initialise the count
+})();
+</script>
 <%- include('partials/footer') %>
