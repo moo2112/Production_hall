@@ -228,8 +228,9 @@
                   <label class="form-label fw-semibold">
                     Batch Number <span class="text-danger">*</span>
                   </label>
-                  <input type="text" class="form-control" name="batchNumber"
-                         placeholder="e.g. BATCH-2024-001" required>
+                  <input type="text" class="form-control" name="batchNumber" id="batchNumberInput"
+                         placeholder="e.g. BATCH-2024-001" autocomplete="off" required>
+                  <div id="batchNumberFeedback" class="form-text"></div>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label fw-semibold">
@@ -857,6 +858,52 @@
   input.addEventListener('input', apply);
   if (clearBtn) clearBtn.addEventListener('click', function(){ input.value=''; apply(); input.focus(); });
   apply(); // initialise the count
+})();
+
+// ── Live duplicate-batch-number check in the New Batch form ───────────────────
+(function(){
+  var field = document.getElementById('batchNumberInput');
+  if (!field) return;
+  var feedback = document.getElementById('batchNumberFeedback');
+  var form = document.getElementById('batchForm');
+  var timer = null;
+  var lastResult = false; // true => duplicate
+
+  function setState(state, msg){
+    field.classList.remove('is-invalid', 'is-valid');
+    feedback.classList.remove('text-danger', 'text-success');
+    if (state === 'dup'){ field.classList.add('is-invalid'); feedback.classList.add('text-danger'); }
+    else if (state === 'ok'){ field.classList.add('is-valid'); feedback.classList.add('text-success'); }
+    feedback.textContent = msg || '';
+  }
+
+  async function check(){
+    var v = (field.value || '').trim();
+    if (!v){ setState('', ''); lastResult = false; return; }
+    try {
+      var res = await fetch('/batch/check-number?number=' + encodeURIComponent(v));
+      var data = await res.json();
+      lastResult = !!data.exists;
+      if (data.exists) setState('dup', '⚠ This batch number already exists — choose a different one.');
+      else setState('ok', '✓ Batch number is available.');
+    } catch(e){ setState('', ''); lastResult = false; }
+  }
+
+  field.addEventListener('input', function(){
+    clearTimeout(timer);
+    timer = setTimeout(check, 350); // debounce while typing
+  });
+
+  // Block submission if the number is a known duplicate.
+  if (form){
+    form.addEventListener('submit', function(e){
+      if (lastResult){
+        e.preventDefault();
+        setState('dup', '⚠ This batch number already exists — choose a different one.');
+        field.focus();
+      }
+    });
+  }
 })();
 </script>
 <%- include('partials/footer') %>

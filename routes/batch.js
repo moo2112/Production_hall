@@ -649,6 +649,18 @@ router.get("/", async (req, res) => {
   }
 });
 
+// ── GET /batch/check-number?number=XXX — live duplicate check (JSON) ─────────
+router.get("/check-number", async (req, res) => {
+  try {
+    const number = String(req.query.number || "").trim();
+    if (!number) return res.json({ exists: false });
+    const existing = await Batch.getByNumber(number).catch(() => null);
+    res.json({ exists: !!existing });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── POST /batch ───────────────────────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
@@ -677,6 +689,15 @@ router.post("/", async (req, res) => {
       }
     }
     const errors = Batch.validate({ batchNumber, itemId });
+    // Reject duplicate batch numbers — a batch number must be unique.
+    if (errors.length === 0) {
+      const existing = await Batch.getByNumber(batchNumber).catch(() => null);
+      if (existing) {
+        errors.push(
+          `Batch number "${String(batchNumber).trim()}" already exists. Please use a different number.`,
+        );
+      }
+    }
     if (errors.length > 0) {
       const [batches, templates, allProducts, workers] = await Promise.all([
         Batch.getAll(),
