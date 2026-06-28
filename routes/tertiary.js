@@ -4,6 +4,9 @@ const TertiaryProduct = require("../models/tertiaryProduct");
 const SecondaryProduct = require("../models/secondaryProduct");
 const Batch = require("../models/batch");
 const ActivityLog = require("../models/activityLog");
+const costService = require("../services/costService");
+const statisticsService = require("../services/statisticsService");
+const PrimaryProduct = require("../models/primaryProduct");
 
 const EPSILON = 0.000001;
 
@@ -14,6 +17,134 @@ function parseJson(value, fallback) {
   } catch (_) {
     return fallback;
   }
+}
+
+function getLoadedCostAddons(stats) {
+  const perUnit =
+    (stats && stats.costing && stats.costing.perUnit) ||
+    (stats && stats.perUnit) ||
+    {};
+
+  return {
+    overheadPerUnit: costService.toNumber(perUnit.overhead, 0),
+    laborPerUnit: costService.toNumber(perUnit.labor, 0),
+  };
+}
+
+function buildLoadedSecondaryCostMap(
+  secondaryProducts,
+  primaryProducts,
+  overheadPerUnit,
+  laborPerUnit,
+) {
+  const priceMap = costService.buildPrimaryPriceMap(primaryProducts || []);
+  const secondaryCostMap = costService.buildSecondaryCostMap(
+    secondaryProducts || [],
+    priceMap,
+  );
+
+  Object.keys(secondaryCostMap).forEach((id) => {
+    const secondary = secondaryCostMap[id];
+    secondary.baseUnitCost = costService.toNumber(secondary.unitCost, 0);
+    secondary.overheadPerUnit = overheadPerUnit;
+    secondary.laborPerUnit = laborPerUnit;
+    // IMPORTANT:
+    // Tertiary recipes consume SECONDARY products. Therefore the tertiary
+    // component cost must use the final loaded secondary unit cost, not the
+    // raw secondary material/preparation cost.
+    secondary.unitCost = costService.round2(
+      secondary.baseUnitCost + overheadPerUnit + laborPerUnit,
+    );
+    secondary.fullyLoadedUnitCost = secondary.unitCost;
+  });
+
+  return secondaryCostMap;
+}
+
+function tertiaryCostFromLoadedSecondary(
+  tertiary,
+  loadedSecondaryCostMap,
+  overheadPerUnit = 0,
+  laborPerUnit = 0,
+) {
+  const componentBase = costService.tertiaryUnitCost(
+    tertiary,
+    loadedSecondaryCostMap,
+  );
+  const prep = costService.toNumber(tertiary.preparationCost, 0);
+  const pack = costService.toNumber(tertiary.packagingCost, 0);
+
+  // Components are already priced using the LOADED secondary unit cost.
+  // Then the tertiary product receives its OWN overhead/unit and labour/unit too.
+  const baseUnitCost = costService.round2(componentBase.unitCost + prep + pack);
+  const unitCost = costService.round2(
+    baseUnitCost + overheadPerUnit + laborPerUnit,
+  );
+
+  return {
+    ...componentBase,
+    componentsCost: componentBase.unitCost,
+    preparationCost: prep,
+    packagingCost: pack,
+    baseUnitCost,
+    overheadPerUnit,
+    laborPerUnit,
+    unitCost,
+  };
+}
+
+function attachLoadedTertiaryCosts(
+  products,
+  primaryProducts,
+  secondaryProducts,
+  stats = null,
+) {
+  const { overheadPerUnit, laborPerUnit } = getLoadedCostAddons(stats);
+  const loadedSecondaryCostMap = buildLoadedSecondaryCostMap(
+    secondaryProducts,
+    primaryProducts,
+    overheadPerUnit,
+    laborPerUnit,
+  );
+
+  (products || []).forEach((p) => {
+    const c = tertiaryCostFromLoadedSecondary(
+      p,
+      loadedSecondaryCostMap,
+      overheadPerUnit,
+      laborPerUnit,
+    );
+
+    const componentRows = Array.isArray(p.components) ? p.components : [];
+    const componentOverheadCost = componentRows.reduce(
+      (sum, comp) =>
+        sum + costService.toNumber(comp.quantity, 0) * overheadPerUnit,
+      0,
+    );
+    const componentLaborCost = componentRows.reduce(
+      (sum, comp) =>
+        sum + costService.toNumber(comp.quantity, 0) * laborPerUnit,
+      0,
+    );
+
+    // `unitCost` shown on the page is the corrected fully-loaded tertiary cost:
+    // Σ(required secondary quantity × loaded secondary unit cost)
+    // + tertiary preparation + packaging
+    // + tertiary OH/unit + tertiary Labour/unit.
+    p.componentsCost = c.componentsCost;
+    p.preparationCost = c.preparationCost;
+    p.packagingCost = c.packagingCost;
+    p.componentOverheadCost = costService.round2(componentOverheadCost);
+    p.componentLaborCost = costService.round2(componentLaborCost);
+    p.baseUnitCost = c.baseUnitCost;
+    p.overheadPerUnit = c.overheadPerUnit;
+    p.laborPerUnit = c.laborPerUnit;
+    p.unitCost = c.unitCost;
+    p.fullyLoadedUnitCost = c.unitCost;
+    p.costMissingPrice = c.missingPrices.length > 0;
+  });
+
+  return products;
 }
 
 function toNumber(value, fallback = 0) {
@@ -165,28 +296,24 @@ async function validateComponentBatchSelections(
 // ── GET /tertiary ─────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
-    const [products, secondaryProducts, batches] = await Promise.all([
-      TertiaryProduct.getAll(),
-      SecondaryProduct.getAll(),
-      Batch.getAll(),
-    ]);
-    // Attach calculated unit cost (primary price -> secondary cost -> tertiary
-    // cost) so the view can display production cost per tertiary product.
-    // Calculation lives in the shared backend cost service.
-    const costService = require("../services/costService");
-    const PrimaryProduct = require("../models/primaryProduct");
-    const primaryProducts = await PrimaryProduct.getAll().catch(() => []);
-    const priceMap = costService.buildPrimaryPriceMap(primaryProducts);
-    const secondaryCostMap = costService.buildSecondaryCostMap(
+    const [products, secondaryProducts, batches, primaryProducts, stats] =
+      await Promise.all([
+        TertiaryProduct.getAll(),
+        SecondaryProduct.getAll(),
+        Batch.getAll(),
+        PrimaryProduct.getAll().catch(() => []),
+        statisticsService.getCostingPerUnitAddons().catch(() => null),
+      ]);
+
+    // Unit Cost shown on this page is fully loaded:
+    // Σ(component quantity × loaded secondary unit cost)
+    // + preparation + packaging + tertiary OH/unit + tertiary Labour/unit.
+    attachLoadedTertiaryCosts(
+      products,
+      primaryProducts,
       secondaryProducts,
-      priceMap,
+      stats,
     );
-    products.forEach((p) => {
-      const c = costService.tertiaryFullUnitCost(p, secondaryCostMap);
-      p.unitCost = c.unitCost;
-      p.componentsCost = c.componentsCost;
-      p.costMissingPrice = c.missingPrices.length > 0;
-    });
     res.render("tertiary", {
       title: "Tertiary Products",
       products,
@@ -220,11 +347,20 @@ router.post("/", async (req, res) => {
     const components = parseJson(componentsJson, []);
     const errors = TertiaryProduct.validate({ name, description, components });
     if (errors.length > 0) {
-      const [products, secondaryProducts, batches] = await Promise.all([
-        TertiaryProduct.getAll(),
-        SecondaryProduct.getAll(),
-        Batch.getAll(),
-      ]);
+      const [products, secondaryProducts, batches, primaryProducts, stats] =
+        await Promise.all([
+          TertiaryProduct.getAll(),
+          SecondaryProduct.getAll(),
+          Batch.getAll(),
+          PrimaryProduct.getAll().catch(() => []),
+          statisticsService.getCostingPerUnitAddons().catch(() => null),
+        ]);
+      attachLoadedTertiaryCosts(
+        products,
+        primaryProducts,
+        secondaryProducts,
+        stats,
+      );
       return res.render("tertiary", {
         title: "Tertiary Products",
         products,
@@ -251,11 +387,20 @@ router.post("/", async (req, res) => {
     });
     res.redirect("/tertiary?success=Tertiary product encoded successfully");
   } catch (error) {
-    const [products, secondaryProducts, batches] = await Promise.all([
-      TertiaryProduct.getAll(),
-      SecondaryProduct.getAll(),
-      Batch.getAll(),
-    ]);
+    const [products, secondaryProducts, batches, primaryProducts, stats] =
+      await Promise.all([
+        TertiaryProduct.getAll(),
+        SecondaryProduct.getAll(),
+        Batch.getAll(),
+        PrimaryProduct.getAll().catch(() => []),
+        statisticsService.getCostingPerUnitAddons().catch(() => null),
+      ]);
+    attachLoadedTertiaryCosts(
+      products,
+      primaryProducts,
+      secondaryProducts,
+      stats,
+    );
     res.render("tertiary", {
       title: "Tertiary Products",
       products,
@@ -378,11 +523,28 @@ router.post("/:id/produce", async (req, res) => {
       secondaryProducts = [],
       batches = [];
     try {
-      [products, secondaryProducts, batches] = await Promise.all([
+      const [
+        loadedProducts,
+        loadedSecondaryProducts,
+        loadedBatches,
+        primaryProducts,
+        stats,
+      ] = await Promise.all([
         TertiaryProduct.getAll(),
         SecondaryProduct.getAll(),
         Batch.getAll(),
+        PrimaryProduct.getAll().catch(() => []),
+        statisticsService.getCostingPerUnitAddons().catch(() => null),
       ]);
+      products = loadedProducts;
+      secondaryProducts = loadedSecondaryProducts;
+      batches = loadedBatches;
+      attachLoadedTertiaryCosts(
+        products,
+        primaryProducts,
+        secondaryProducts,
+        stats,
+      );
     } catch (_) {}
     res.render("tertiary", {
       title: "Tertiary Products",
@@ -444,11 +606,28 @@ router.post("/:id/sell", async (req, res) => {
       secondaryProducts = [],
       batches = [];
     try {
-      [products, secondaryProducts, batches] = await Promise.all([
+      const [
+        loadedProducts,
+        loadedSecondaryProducts,
+        loadedBatches,
+        primaryProducts,
+        stats,
+      ] = await Promise.all([
         TertiaryProduct.getAll(),
         SecondaryProduct.getAll(),
         Batch.getAll(),
+        PrimaryProduct.getAll().catch(() => []),
+        statisticsService.getCostingPerUnitAddons().catch(() => null),
       ]);
+      products = loadedProducts;
+      secondaryProducts = loadedSecondaryProducts;
+      batches = loadedBatches;
+      attachLoadedTertiaryCosts(
+        products,
+        primaryProducts,
+        secondaryProducts,
+        stats,
+      );
     } catch (_) {}
     res.render("tertiary", {
       title: "Tertiary Products",

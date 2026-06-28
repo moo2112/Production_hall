@@ -38,7 +38,7 @@
                   <th>Stock</th>
                   <th>Description</th>
                   <th>Primary Components (Recipe)</th>
-                  <th>Unit Cost</th>
+                  <th>Loaded Unit Cost</th>
                   <th class="text-end">Actions</th>
                 </tr>
               </thead>
@@ -84,7 +84,14 @@
                       <% } %>
                     </td>
                     <td>
-                      <span class="badge bg-info text-dark fs-6"><i class="bi bi-cash-stack"></i> <%= Number(product.unitCost || 0).toFixed(2) %></span>
+                      <span class="badge bg-info text-dark fs-6" title="Material + preparation + overhead/unit + labour/unit">
+                        <i class="bi bi-cash-stack"></i> <%= Number(product.unitCost || 0).toFixed(2) %>
+                      </span>
+                      <div class="small text-muted mt-1">
+                        Base <%= Number(product.baseUnitCost || 0).toFixed(2) %>
+                        + OH <%= Number(product.overheadPerUnit || 0).toFixed(2) %>
+                        + Labour <%= Number(product.laborPerUnit || 0).toFixed(2) %>
+                      </div>
                       <% if (product.costMissingPrice) { %>
                         <div class="small text-warning mt-1"><i class="bi bi-exclamation-triangle-fill"></i> Some component prices missing</div>
                       <% } %>

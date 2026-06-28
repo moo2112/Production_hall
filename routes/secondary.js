@@ -287,6 +287,8 @@ const SecondaryProduct = require("../models/secondaryProduct");
 const PrimaryProduct = require("../models/primaryProduct");
 const Batch = require("../models/batch");
 const ActivityLog = require("../models/activityLog");
+const costService = require("../services/costService");
+const statisticsService = require("../services/statisticsService");
 
 function parseJson(value, fallback) {
   if (!value) return fallback;
@@ -297,27 +299,73 @@ function parseJson(value, fallback) {
   }
 }
 
+function getLoadedCostAddons(stats) {
+  const perUnit =
+    (stats && stats.costing && stats.costing.perUnit) ||
+    (stats && stats.perUnit) ||
+    {};
+
+  return {
+    overheadPerUnit: costService.toNumber(perUnit.overhead, 0),
+    laborPerUnit: costService.toNumber(perUnit.labor, 0),
+  };
+}
+
+function attachLoadedSecondaryCosts(products, primaryProducts, stats = null) {
+  const { overheadPerUnit, laborPerUnit } = getLoadedCostAddons(stats);
+  const statsRows = new Map(
+    ((stats && stats.costs && stats.costs.secondaryCosts) || []).map((row) => [
+      row.id,
+      row,
+    ]),
+  );
+
+  const priceMap = costService.buildPrimaryPriceMap(primaryProducts || []);
+  (products || []).forEach((p) => {
+    const statsRow = statsRows.get(p.id);
+    if (statsRow) {
+      p.materialCost = costService.toNumber(statsRow.materialCost, 0);
+      p.preparationCost = costService.toNumber(statsRow.preparationCost, 0);
+      p.baseUnitCost = costService.toNumber(statsRow.unitCost, 0);
+      p.overheadPerUnit = overheadPerUnit;
+      p.laborPerUnit = laborPerUnit;
+      p.unitCost = costService.round2(
+        statsRow.fullyLoadedUnitCost !== undefined
+          ? statsRow.fullyLoadedUnitCost
+          : p.baseUnitCost + overheadPerUnit + laborPerUnit,
+      );
+      p.costMissingPrice = (statsRow.missingPrices || []).length > 0;
+      return;
+    }
+
+    const c = costService.secondaryUnitCost(p, priceMap);
+    p.materialCost = c.unitCost;
+    p.preparationCost = costService.toNumber(p.preparationCost, 0);
+    p.baseUnitCost = costService.round2(p.materialCost + p.preparationCost);
+    p.overheadPerUnit = overheadPerUnit;
+    p.laborPerUnit = laborPerUnit;
+    p.unitCost = costService.round2(
+      p.baseUnitCost + overheadPerUnit + laborPerUnit,
+    );
+    p.costMissingPrice = c.missingPrices.length > 0;
+  });
+
+  return products;
+}
+
 // ── GET /secondary ────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
-    const [products, primaryProducts, batches] = await Promise.all([
+    const [products, primaryProducts, batches, stats] = await Promise.all([
       SecondaryProduct.getAll(),
       PrimaryProduct.getAll(),
       Batch.getAll(),
+      statisticsService.getCostingPerUnitAddons().catch(() => null),
     ]);
-    // Attach calculated unit cost (derived from primary prices) so the view can
-    // show production cost per secondary product. Calculation lives in the
-    // shared backend cost service, not in the template.
-    const costService = require("../services/costService");
-    const priceMap = costService.buildPrimaryPriceMap(primaryProducts);
-    products.forEach((p) => {
-      const c = costService.secondaryUnitCost(p, priceMap);
-      p.unitCost = costService.round2(
-        (c.unitCost || 0) + (parseFloat(p.preparationCost) || 0),
-      );
-      p.materialCost = c.unitCost;
-      p.costMissingPrice = c.missingPrices.length > 0;
-    });
+
+    // Unit Cost shown on this page is now the fully-loaded cost:
+    // material + preparation + overhead/unit + labour/unit.
+    attachLoadedSecondaryCosts(products, primaryProducts, stats);
     res.render("secondary", {
       title: "Secondary Products",
       products,
@@ -346,11 +394,13 @@ router.post("/", async (req, res) => {
 
     const errors = SecondaryProduct.validate({ name, description, components });
     if (errors.length > 0) {
-      const [products, primaryProducts, batches] = await Promise.all([
+      const [products, primaryProducts, batches, stats] = await Promise.all([
         SecondaryProduct.getAll(),
         PrimaryProduct.getAll(),
         Batch.getAll(),
+        statisticsService.getCostingPerUnitAddons().catch(() => null),
       ]);
+      attachLoadedSecondaryCosts(products, primaryProducts, stats);
       return res.render("secondary", {
         title: "Secondary Products",
         products,
@@ -379,11 +429,13 @@ router.post("/", async (req, res) => {
 
     res.redirect("/secondary?success=Secondary product encoded successfully");
   } catch (error) {
-    const [products, primaryProducts, batches] = await Promise.all([
+    const [products, primaryProducts, batches, stats] = await Promise.all([
       SecondaryProduct.getAll(),
       PrimaryProduct.getAll(),
       Batch.getAll(),
+      statisticsService.getCostingPerUnitAddons().catch(() => null),
     ]);
+    attachLoadedSecondaryCosts(products, primaryProducts, stats);
     res.render("secondary", {
       title: "Secondary Products",
       products,
@@ -480,11 +532,15 @@ router.post("/:id/produce", async (req, res) => {
       primaryProducts = [],
       batches = [];
     try {
+      const stats = await statisticsService
+        .getCostingPerUnitAddons()
+        .catch(() => null);
       [products, primaryProducts, batches] = await Promise.all([
         SecondaryProduct.getAll(),
         PrimaryProduct.getAll(),
         Batch.getAll(),
       ]);
+      attachLoadedSecondaryCosts(products, primaryProducts, stats);
     } catch (_) {}
     res.render("secondary", {
       title: "Secondary Products",

@@ -285,6 +285,104 @@ function buildProductStats(products, ledger, windowDays, today) {
   });
 }
 
+function calculateCostingAddonsFromAnalysis(
+  analysis,
+  overheads,
+  workers,
+  attendance,
+  windowDays,
+) {
+  // Allocate shared costs across all finished secondary + tertiary units made.
+  const unitsProduced =
+    sumMap(analysis.productionByTier.Secondary) +
+    sumMap(analysis.productionByTier.Tertiary);
+
+  const OverheadCost = require("../models/overheadCost");
+  const overheadSummary = OverheadCost.summarize(
+    overheads || [],
+    windowDays,
+    unitsProduced,
+  );
+
+  // Labour cost over the window, from wages × attendance.
+  // Hourly assumes an 8-hour day; monthly is spread over 30 days.
+  const wageById = {};
+  (workers || []).forEach((w) => {
+    wageById[w.id] = {
+      wage: toNumber(w.wage, 0),
+      type: w.wageType || "daily",
+      name: w.name,
+    };
+  });
+
+  const dayEquivalent = (info) => {
+    if (!info) return 0;
+    if (info.type === "hourly") return info.wage * 8;
+    if (info.type === "monthly") return info.wage / 30;
+    return info.wage;
+  };
+
+  let laborCost = 0;
+  let attendanceDays = 0;
+  (attendance || []).forEach((day) => {
+    const present = (day.records || []).filter((r) => r.present);
+    if (present.length) attendanceDays += 1;
+    present.forEach((r) => {
+      laborCost += dayEquivalent(wageById[r.workerId]);
+    });
+  });
+
+  laborCost = round2(laborCost);
+  const laborPerUnit =
+    unitsProduced > 0 ? round2(laborCost / unitsProduced) : 0;
+
+  return {
+    unitsProduced: round2(unitsProduced),
+    overhead: overheadSummary,
+    labor: { total: laborCost, perUnit: laborPerUnit, attendanceDays },
+    perUnit: {
+      overhead: overheadSummary.perUnitTotal,
+      labor: laborPerUnit,
+    },
+  };
+}
+
+/**
+ * Lightweight helper for product pages. It returns the same overhead/unit and
+ * labour/unit add-ons used by the Statistics page, without reloading every
+ * primary/secondary/tertiary product catalogue row.
+ */
+async function getCostingPerUnitAddons() {
+  const OverheadCost = require("../models/overheadCost");
+  const Worker = require("../models/worker");
+  const Attendance = require("../models/attendance");
+
+  const [logs, overheads, workers, attendance] = await Promise.all([
+    ActivityLog.getAll().catch(() => []),
+    OverheadCost.getAll().catch(() => []),
+    Worker.getAll().catch(() => []),
+    Attendance.getRecent(60).catch(() => []),
+  ]);
+
+  const analysis = analyzeLogs(logs, [], [], []);
+  const today = new Date();
+  const windowDays = analysis.firstDate
+    ? daysBetween(analysis.firstDate, today)
+    : 1;
+
+  return {
+    generatedAt: today,
+    windowDays,
+    ...calculateCostingAddonsFromAnalysis(
+      analysis,
+      overheads,
+      workers,
+      attendance,
+      windowDays,
+    ),
+  };
+}
+
 /**
  * Core builder — produces the full statistics object consumed by the view and
  * the recommendation endpoints.
@@ -459,15 +557,87 @@ async function getStatistics() {
     avgMaterialPerUnit + overheadPerUnit + laborPerUnit,
   );
 
-  // Attach a fully-loaded unit cost to each secondary/tertiary cost row so the
-  // statistics page can show materials vs. fully-loaded side by side.
-  const addLoaded = (rows) =>
-    rows.map((r) => ({
-      ...r,
+  // Attach fully-loaded cost rows.
+  // Secondary: base secondary unit cost + OH/unit + labour/unit.
+  costs.secondaryCosts = costs.secondaryCosts.map((r) => ({
+    ...r,
+    overheadPerUnit,
+    laborPerUnit,
+    fullyLoadedUnitCost: round2(r.unitCost + overheadPerUnit + laborPerUnit),
+    fullyLoadedStockValue: round2(
+      (r.unitCost + overheadPerUnit + laborPerUnit) * toNumber(r.stock, 0),
+    ),
+  }));
+
+  // Tertiary: calculate from loaded secondary component costs, then add the
+  // tertiary product's own OH/unit and labour/unit as the final layer.
+  // Final = Σ(qty × loaded secondary unit cost) + prep + pack + OH + labour.
+  const loadedSecondaryCostMap = {};
+  Object.keys(costs.secondaryCostMap || {}).forEach((id) => {
+    const sec = costs.secondaryCostMap[id];
+    loadedSecondaryCostMap[id] = {
+      ...sec,
+      baseUnitCost: sec.unitCost,
+      overheadPerUnit,
+      laborPerUnit,
+      unitCost: round2(sec.unitCost + overheadPerUnit + laborPerUnit),
+      fullyLoadedUnitCost: round2(
+        sec.unitCost + overheadPerUnit + laborPerUnit,
+      ),
+    };
+  });
+
+  const loadedTertiaryById = new Map(
+    tertiary.map((ter) => {
+      const loaded = costService.tertiaryFullUnitCost(
+        ter,
+        loadedSecondaryCostMap,
+      );
+      const stock = toNumber(ter.quantity, 0);
+      const components = Array.isArray(ter.components) ? ter.components : [];
+      const componentOverheadCost = round2(
+        components.reduce(
+          (sum, comp) => sum + toNumber(comp.quantity, 0) * overheadPerUnit,
+          0,
+        ),
+      );
+      const componentLaborCost = round2(
+        components.reduce(
+          (sum, comp) => sum + toNumber(comp.quantity, 0) * laborPerUnit,
+          0,
+        ),
+      );
+
+      const baseUnitCost = loaded.unitCost;
+      const fullyLoadedUnitCost = round2(
+        baseUnitCost + overheadPerUnit + laborPerUnit,
+      );
+
+      return [
+        ter.id,
+        {
+          loadedSecondaryComponentsCost: loaded.componentsCost,
+          componentOverheadCost,
+          componentLaborCost,
+          baseUnitCost,
+          overheadPerUnit,
+          laborPerUnit,
+          fullyLoadedUnitCost,
+          fullyLoadedStockValue: round2(fullyLoadedUnitCost * stock),
+        },
+      ];
+    }),
+  );
+
+  costs.tertiaryCosts = costs.tertiaryCosts.map((r) => ({
+    ...r,
+    ...(loadedTertiaryById.get(r.id) || {
       fullyLoadedUnitCost: round2(r.unitCost + overheadPerUnit + laborPerUnit),
-    }));
-  costs.secondaryCosts = addLoaded(costs.secondaryCosts);
-  costs.tertiaryCosts = addLoaded(costs.tertiaryCosts);
+      fullyLoadedStockValue: round2(
+        (r.unitCost + overheadPerUnit + laborPerUnit) * toNumber(r.stock, 0),
+      ),
+    }),
+  }));
 
   const costing = {
     unitsProduced: round2(unitsProduced),
@@ -621,6 +791,7 @@ async function getProductionTasks(targetDays = SAFE_STOCK_DAYS) {
 module.exports = {
   SAFE_STOCK_DAYS,
   getStatistics,
+  getCostingPerUnitAddons,
   getPurchaseOrder,
   getProductionTasks,
 };
