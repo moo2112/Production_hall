@@ -386,8 +386,16 @@ async function getCostingPerUnitAddons() {
 /**
  * Core builder — produces the full statistics object consumed by the view and
  * the recommendation endpoints.
+ *
+ * NOTE: this is the *uncached* implementation. Call the memoized `getStatistics`
+ * (exported below) instead — a single `/statistics` page render asks for the
+ * full statistics, the purchase order AND the production tasks, and the latter
+ * two used to each recompute everything from scratch, so the page triggered
+ * THREE full reads of every collection (primary/secondary/tertiary/logs/
+ * overheads/workers/attendance), including the unbounded activity log. The
+ * cache collapses those into one load per request.
  */
-async function getStatistics() {
+async function _getStatisticsUncached() {
   const { primary, secondary, tertiary, logs, overheads, workers, attendance } =
     await loadData();
   const analysis = analyzeLogs(logs, secondary, primary, tertiary);
@@ -788,9 +796,59 @@ async function getProductionTasks(targetDays = SAFE_STOCK_DAYS) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// REQUEST-LEVEL MEMOIZATION (EFFICIENCY)
+// ─────────────────────────────────────────────────────────────────────────────
+// `getStatistics()` reads every product tier plus the full activity log,
+// overheads, workers and 60 days of attendance. A single `/statistics` render
+// calls it three times (the page itself + getPurchaseOrder + getProductionTasks),
+// and the PDF route does the same. Recomputing identical data three times in a
+// few milliseconds is pure waste — and the activity log read is unbounded.
+//
+// We cache the computed statistics object for a short TTL so all calls within
+// one request (and rapid back-to-back requests) share a single load. The window
+// is small enough that the dashboard stays effectively live, but it removes ~2
+// of every 3 full collection scans the page used to perform.
+const STATS_CACHE_TTL_MS = 15 * 1000;
+let _statsCache = null;
+let _statsCachedAt = 0;
+let _statsInFlight = null; // de-dupes concurrent (Promise.all) calls into one load
+
+async function getStatistics() {
+  const now = Date.now();
+  if (_statsCache && now - _statsCachedAt < STATS_CACHE_TTL_MS) {
+    return _statsCache;
+  }
+  // If a computation is already running (e.g. the page fired getStatistics,
+  // getPurchaseOrder and getProductionTasks via Promise.all simultaneously),
+  // reuse the same in-flight promise instead of starting parallel loads.
+  if (_statsInFlight) return _statsInFlight;
+
+  _statsInFlight = (async () => {
+    try {
+      const stats = await _getStatisticsUncached();
+      _statsCache = stats;
+      _statsCachedAt = Date.now();
+      return stats;
+    } finally {
+      _statsInFlight = null;
+    }
+  })();
+
+  return _statsInFlight;
+}
+
+// Allows callers (e.g. after a write that changes stock/logs) to force the next
+// getStatistics() to recompute, if ever needed.
+function invalidateStatisticsCache() {
+  _statsCache = null;
+  _statsCachedAt = 0;
+}
+
 module.exports = {
   SAFE_STOCK_DAYS,
   getStatistics,
+  invalidateStatisticsCache,
   getCostingPerUnitAddons,
   getPurchaseOrder,
   getProductionTasks,
