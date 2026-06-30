@@ -659,6 +659,15 @@ async function _getStatisticsUncached() {
     },
   };
 
+  const currentMonthRange = getCurrentMonthRange(today);
+  const currentMonthLabel = currentMonthRange.start.toLocaleDateString(
+    "en-US",
+    {
+      month: "long",
+      year: "numeric",
+    },
+  );
+
   return {
     generatedAt: today,
     windowDays,
@@ -678,6 +687,13 @@ async function _getStatisticsUncached() {
     costs, // full cost breakdown from costService (+ fullyLoadedUnitCost)
     costing, // overhead, labour, fully-loaded cost-per-unit
     workerRanking: rankWorkers(workers),
+    monthlyWorkerRanking: rankWorkersForPeriod(
+      workers,
+      currentMonthRange.start,
+      currentMonthRange.end,
+    ),
+    currentMonthLabel,
+    currentMonthStart: currentMonthRange.start,
     counts: {
       primary: primary.length,
       secondary: secondary.length,
@@ -687,7 +703,7 @@ async function _getStatisticsUncached() {
   };
 }
 
-/** Rank workers by performance score (see Worker.computeRank). */
+/** Rank workers by global performance score (see Worker.computeRank). */
 function rankWorkers(workers) {
   const Worker = require("../models/worker");
   return (workers || [])
@@ -699,7 +715,102 @@ function rankWorkers(workers) {
       wageType: w.wageType || "daily",
       ...Worker.computeRank(w),
     }))
-    .sort((a, b) => b.score - a.score);
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        String(a.name || "").localeCompare(String(b.name || "")),
+    );
+}
+
+function getCurrentMonthRange(referenceDate) {
+  const ref = toDate(referenceDate) || new Date();
+  const start = new Date(ref.getFullYear(), ref.getMonth(), 1, 0, 0, 0, 0);
+  const end = new Date(ref.getFullYear(), ref.getMonth() + 1, 1, 0, 0, 0, 0);
+  return { start, end };
+}
+
+function toEntryDate(value) {
+  // Treat plain YYYY-MM-DD values as local calendar days, not UTC midnights,
+  // so records made on the 1st day of the month are included correctly.
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day, 12, 0, 0, 0);
+  }
+  return toDate(value);
+}
+
+function getDatedEntryValue(entry, fields) {
+  for (const field of fields) {
+    if (entry && entry[field] != null) {
+      const d = toEntryDate(entry[field]);
+      if (d) return d;
+    }
+  }
+  return null;
+}
+
+function countEntriesInPeriod(entries, fields, start, end) {
+  return (Array.isArray(entries) ? entries : []).filter((entry) => {
+    const d = getDatedEntryValue(entry, fields);
+    return d && d >= start && d < end;
+  }).length;
+}
+
+/**
+ * Monthly ranking uses the same score formula as the global table, but counts
+ * only entries dated from the first day of the current month. This makes every
+ * worker start each month with zero points until new work/quality/error records
+ * are added in that month.
+ */
+function rankWorkersForPeriod(workers, start, end) {
+  return (workers || [])
+    .map((w) => {
+      const tasksCompleted = countEntriesInPeriod(
+        w.taskHistory,
+        ["date", "completedAt", "createdAt", "recordedAt"],
+        start,
+        end,
+      );
+      const batchesMade = countEntriesInPeriod(
+        w.batchesMade,
+        ["batchCreatedAt", "createdAt", "date", "recordedAt"],
+        start,
+        end,
+      );
+      const qualityRounds = countEntriesInPeriod(
+        w.qualityRounds,
+        ["date", "recordedAt", "createdAt"],
+        start,
+        end,
+      );
+      const errors = countEntriesInPeriod(
+        w.productionErrors,
+        ["date", "recordedAt", "createdAt"],
+        start,
+        end,
+      );
+      const score = Math.round(
+        tasksCompleted * 10 + batchesMade * 5 + qualityRounds * 2 - errors * 5,
+      );
+
+      return {
+        id: w.id,
+        name: w.name,
+        role: w.role,
+        wage: toNumber(w.wage, 0),
+        wageType: w.wageType || "daily",
+        score,
+        tasksCompleted,
+        batchesMade,
+        errors,
+        qualityRounds,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        String(a.name || "").localeCompare(String(b.name || "")),
+    );
 }
 
 /**

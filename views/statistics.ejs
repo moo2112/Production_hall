@@ -191,6 +191,35 @@
       </div>
       <% } %>
 
+      <!-- ════════════════ MONTHLY WORKER RANKING ════════════════ -->
+      <% if (stats.monthlyWorkerRanking && stats.monthlyWorkerRanking.length) { %>
+      <div class="card shadow-sm mb-4 border-info">
+        <div class="card-header bg-info text-dark fw-semibold"><i class="bi bi-calendar-month"></i> Monthly Worker Performance Ranking - <%= stats.currentMonthLabel || 'Current Month' %></div>
+        <div class="card-body">
+          <p class="text-muted small">This monthly ranking uses the same workers and the same score formula as the global table, but counts only work recorded from the first day of the current month. On the first day of every month, all monthly points start from 0.</p>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead class="table-light"><tr><th>#</th><th>Worker</th><th>Role</th><th class="text-end">Tasks</th><th class="text-end">Batches</th><th class="text-end">Quality rounds</th><th class="text-end">Errors</th><th class="text-end">Monthly Score</th></tr></thead>
+              <tbody>
+                <% stats.monthlyWorkerRanking.forEach((w, i) => { %>
+                  <tr>
+                    <td><% if (i===0 && w.score > 0) { %><i class="bi bi-trophy-fill text-warning"></i><% } else { %><%= i+1 %><% } %></td>
+                    <td class="fw-semibold"><%= w.name %></td>
+                    <td class="small text-muted"><%= w.role || '—' %></td>
+                    <td class="text-end"><%= w.tasksCompleted %></td>
+                    <td class="text-end"><%= w.batchesMade %></td>
+                    <td class="text-end"><%= w.qualityRounds %></td>
+                    <td class="text-end <%= w.errors>0?'text-danger':'' %>"><%= w.errors %></td>
+                    <td class="text-end fw-bold"><%= w.score %></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <% } %>
+
       <!-- ════════════════ PRIMARY PRODUCT ANALYSIS ════════════════ -->
       <div class="card shadow-sm mb-4">
         <div class="card-header bg-success text-white fw-semibold"><i class="bi bi-graph-up"></i> Primary Product Consumption &amp; Coverage</div>
