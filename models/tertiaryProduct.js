@@ -11,6 +11,32 @@ function roundQty(value) {
   return Math.round((toNumber(value) + Number.EPSILON) * 1000000) / 1000000;
 }
 
+function timestampMillis(value) {
+  if (!value) return 0;
+  if (value.seconds) return value.seconds * 1000;
+  if (value._seconds) return value._seconds * 1000;
+  if (value.toDate) return value.toDate().getTime();
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeSaleHistory(saleHistory = []) {
+  if (!Array.isArray(saleHistory)) return [];
+
+  return saleHistory
+    .map((sale) => ({
+      batchId: sale.batchId || "__manual__",
+      batchNumber:
+        sale.batchNumber || sale.patchNumber || "Manual / Unassigned",
+      patchNumber:
+        sale.patchNumber || sale.batchNumber || "Manual / Unassigned",
+      quantity: roundQty(sale.quantity || sale.soldQuantity || 0),
+      soldAt: sale.soldAt || sale.saleDate || sale.date || null,
+    }))
+    .filter((sale) => sale.quantity > EPSILON)
+    .sort((a, b) => timestampMillis(b.soldAt) - timestampMillis(a.soldAt));
+}
+
 function normalizeBatchStock(batchStock = []) {
   if (!Array.isArray(batchStock)) return [];
 
@@ -202,6 +228,8 @@ class TertiaryProduct {
     this.description = data.description || "";
     this.quantity = toNumber(data.quantity || 0);
     this.batchStock = normalizeBatchStock(data.batchStock || []);
+    this.soldQuantity = toNumber(data.soldQuantity || 0);
+    this.saleHistory = normalizeSaleHistory(data.saleHistory || []);
     this.components = data.components || [];
     // Extra per-unit costs for the FINISHED tertiary product, added on top of
     // the cost of its secondary components by costService:
@@ -320,13 +348,16 @@ class TertiaryProduct {
         const { healed, componentDetails, unresolved } =
           await this.resolveComponents(data.components);
         const batchStock = normalizeBatchStock(data.batchStock || []);
+        const saleHistory = normalizeSaleHistory(data.saleHistory || []);
         products.push({
           id: doc.id,
           ...data,
           components: healed,
           quantity: toNumber(data.quantity || 0),
+          soldQuantity: toNumber(data.soldQuantity || 0),
           batchStock,
           batchStockTotal: this.getBatchTotal(batchStock),
+          saleHistory,
           componentDetails,
           unresolvedComponents: unresolved,
         });
@@ -345,13 +376,16 @@ class TertiaryProduct {
       const { healed, componentDetails, unresolved } =
         await this.resolveComponents(data.components);
       const batchStock = normalizeBatchStock(data.batchStock || []);
+      const saleHistory = normalizeSaleHistory(data.saleHistory || []);
       return {
         id: doc.id,
         ...data,
         components: healed,
         quantity: toNumber(data.quantity || 0),
+        soldQuantity: toNumber(data.soldQuantity || 0),
         batchStock,
         batchStockTotal: this.getBatchTotal(batchStock),
+        saleHistory,
         componentDetails,
         unresolvedComponents: unresolved,
       };
@@ -522,11 +556,22 @@ class TertiaryProduct {
         entry.updatedAt = new Date();
         soldBatchNumber = entry.batchNumber;
 
+        const soldAt = new Date();
+        const saleHistory = normalizeSaleHistory(data.saleHistory || []);
+        saleHistory.unshift({
+          batchId,
+          batchNumber: soldBatchNumber,
+          patchNumber: soldBatchNumber,
+          quantity: amt,
+          soldAt,
+        });
+
         t.update(docRef, {
           quantity: roundQty(currentQty - amt),
           soldQuantity: roundQty(currentSold + amt),
           batchStock: normalizeBatchStock(nextStock),
-          updatedAt: new Date(),
+          saleHistory,
+          updatedAt: soldAt,
         });
       });
 
@@ -820,6 +865,8 @@ class TertiaryProduct {
         const batchStock = this.sortByProductionDate(
           normalizeBatchStock(data.batchStock || []),
         ).map((e) => ({ ...e }));
+        const saleHistory = normalizeSaleHistory(data.saleHistory || []);
+        const soldAt = new Date();
 
         let remaining = amt;
         for (const entry of batchStock) {
@@ -827,10 +874,22 @@ class TertiaryProduct {
           const avail = roundQty(entry.quantity);
           if (avail <= EPSILON) continue;
           const take = Math.min(avail, remaining);
-          entry.quantity = roundQty(avail - take);
-          entry.updatedAt = new Date();
-          remaining = roundQty(remaining - take);
-          soldFrom.push({ batchNumber: entry.batchNumber, qty: take });
+          const soldQtyFromBatch = roundQty(take);
+          entry.quantity = roundQty(avail - soldQtyFromBatch);
+          entry.updatedAt = soldAt;
+          remaining = roundQty(remaining - soldQtyFromBatch);
+          soldFrom.push({
+            batchId: entry.batchId,
+            batchNumber: entry.batchNumber,
+            qty: soldQtyFromBatch,
+          });
+          saleHistory.unshift({
+            batchId: entry.batchId,
+            batchNumber: entry.batchNumber,
+            patchNumber: entry.batchNumber,
+            quantity: soldQtyFromBatch,
+            soldAt,
+          });
         }
 
         const soldQty = roundQty(amt - remaining);
@@ -840,7 +899,8 @@ class TertiaryProduct {
           quantity: roundQty(Math.max(0, currentQty - soldQty)),
           soldQuantity: roundQty(currentSold + soldQty),
           batchStock: normalizeBatchStock(batchStock),
-          updatedAt: new Date(),
+          saleHistory,
+          updatedAt: soldAt,
         });
       });
 
